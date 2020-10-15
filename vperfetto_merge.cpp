@@ -41,6 +41,7 @@ int main(int argc, char** argv) {
 
     if ((argc != 4) && (argc != 5)) {
         fprintf(stderr, "%s: error: invalid usage of vperfetto_merge. Usage: vperfetto_merge <guestTraceFile> <hostTraceFile> <combinedTraceFile> [guestClockBootTimeNsWhenHostTracingStarted]>\n", __func__);
+        return 1;
     } else {
         const char* guestFile = argv[1];
         const char* hostFile = argv[2];
