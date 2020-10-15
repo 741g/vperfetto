@@ -338,7 +338,8 @@ static void sCalcMaxIds(
 
 static std::vector<char> constructCombinedTrace(
     const std::vector<char>& guestTrace,
-    const std::vector<char>& hostTrace) {
+    const std::vector<char>& hostTrace,
+    uint64_t guestTimeDiff) {
 
     // Calculate the max seqid/pid/tid in the guest
     uint32_t maxGuestSequenceId = 0;
@@ -360,8 +361,8 @@ static std::vector<char> constructCombinedTrace(
             maxGuestPid);
 
     iterateTraceTimestamps(host_pbtrace,
-        [](uint64_t ts) {
-            return ts + sTraceConfig.guestTimeDiff;
+        [guestTimeDiff](uint64_t ts) {
+            return ts + guestTimeDiff;
         });
 
     iterateTraceIds(host_pbtrace,
@@ -443,7 +444,7 @@ void asyncTraceSaveFunc() {
     guestFile.close();
 
     sTraceProgress.combinedTrace =
-        constructCombinedTrace(sTraceProgress.guestTrace, sTraceProgress.hostTrace);
+        constructCombinedTrace(sTraceProgress.guestTrace, sTraceProgress.hostTrace, sTraceConfig.guestTimeDiff);
 
     std::ofstream hostFile(hostFilename, std::ios::out | std::ios::binary);
     hostFile.write(sTraceProgress.hostTrace.data(), sTraceProgress.hostTrace.size());
@@ -526,6 +527,7 @@ PERFETTO_TRACING_ONLY_EXPORT void setGuestTime(uint64_t t) {
         if (!config.tracingDisabled) {
             return;
         }
+        fprintf(stderr, "vperfetto::setGuestTime: to %llu\n", __func__, (unsigned long long)t);
         config.guestStartTime = t;
         config.hostStartTime = (uint64_t)(::perfetto::base::GetWallTimeNs().count());
         config.guestTimeDiff = config.guestStartTime - config.hostStartTime;
@@ -546,6 +548,90 @@ PERFETTO_TRACING_ONLY_EXPORT void waitSavingDone() {
         sleepUs(1000000);
     }
     fprintf(stderr, "%s: waiting for trace saving to be done...(done)\n", __func__);
+}
+
+uint64_t getTraceStartTime(const std::vector<char>& trace) {
+    ::perfetto::protos::Trace pbtrace;
+    std::string traceStr(trace.begin(), trace.end());
+    if (!pbtrace.ParseFromString(traceStr)) {
+        fprintf(stderr, "%s: error: could not parse host trace. return 0\n", __func__);
+        return 0;
+    }
+
+    for (int i = 0; i < pbtrace.packet_size(); ++i) {
+        auto* packet = pbtrace.mutable_packet(i);
+        if (packet->has_timestamp()) {
+            fprintf(stderr, "%s: first packet with timestamp %llu, using this as corresponding boot time\n", __func__, packet->timestamp());
+            return packet->timestamp();
+        }
+    }
+
+    fprintf(stderr, "%s: did not find any timestamps in trace, return 0\n", __func__);
+    return 0;
+}
+
+static uint64_t deriveGuestTimeDiffWithGuestAbsoluteTime(
+    const std::vector<char>& hostTrace, uint64_t guestBootTimeNs) {
+
+    fprintf(stderr, "%s: Deriving guest time diff from host trace and guest abs time of %llu ns\n", __func__,
+            (unsigned long long)guestBootTimeNs);
+
+    uint64_t hostStartTimeNs = getTraceStartTime(hostTrace);
+
+    uint64_t diff = guestBootTimeNs - hostStartTimeNs;
+
+    fprintf(stderr, "%s: time diff: %llu\n", __func__, (unsigned long long)diff);
+    return 0;
+}
+
+static uint64_t deriveGuestTimeDiff(
+    const std::vector<char>& guestTrace,
+    const std::vector<char>& hostTrace) {
+
+    fprintf(stderr, "%s: Deriving guest time diff from guest and host traces\n", __func__);
+
+    uint64_t guestStartTimeNs = getTraceStartTime(guestTrace);
+    uint64_t hostStartTimeNs = getTraceStartTime(hostTrace);
+
+    uint64_t diff = guestStartTimeNs - hostStartTimeNs;
+
+    fprintf(stderr, "%s: time diff: %llu\n", __func__, (unsigned long long)diff);
+    return 0;
+}
+
+PERFETTO_TRACING_ONLY_EXPORT void combineTraces(const TraceCombineConfig* config) {
+    std::vector<char> guestTrace;
+    std::vector<char> hostTrace;
+
+    std::ifstream guestFile(config->guestFile, std::ios::binary | std::ios::ate);
+    std::ifstream::pos_type end = guestFile.tellg();
+    guestFile.seekg(0, std::ios::beg);
+    guestTrace.resize(end);
+    guestFile.read(guestTrace.data(), end);
+    guestFile.close();
+
+    std::ifstream hostFile(config->hostFile, std::ios::binary | std::ios::ate);
+    end = hostFile.tellg();
+    hostFile.seekg(0, std::ios::beg);
+    hostTrace.resize(end);
+    hostFile.read(hostTrace.data(), end);
+    hostFile.close();
+
+    uint64_t guestTimeDiff;
+    if (config->useGuestAbsoluteTime) {
+        guestTimeDiff = deriveGuestTimeDiffWithGuestAbsoluteTime(hostTrace, config->guestClockBootTimeNs);
+    } else if (config->useGuestTimeDiff) {
+        guestTimeDiff = config->guestClockTimeDiffNs;
+    } else {
+        guestTimeDiff = deriveGuestTimeDiff(guestTrace, hostTrace);
+    }
+
+    std::vector<char> combinedTrace =
+        constructCombinedTrace(guestTrace, hostTrace, guestTimeDiff);
+
+    std::ofstream combinedFile(config->combinedFile, std::ios::out | std::ios::binary);
+    combinedFile.write(combinedTrace.data(), combinedTrace.size());
+    combinedFile.close();
 }
 
 } // namespace vperfetto

@@ -5,16 +5,25 @@
     cmake . ../
     make
 
-generates `libvperfetto.so`
+generates `libvperfetto.so` for online and `vperfetto_merge` for offline usage.
 
 # How to use
+
+## Online using guest-triggered tracing
 
 Link `libvperfetto.so`
 
 Workflow (namespace vperfetto)
 
 ![vperfetto workflow](vperfetto-workflow.png)
-    
+
+## Offline using separate guest/host traces
+
+This is useful if you've generated traces already but just want to merge them. The binary takes 3 mandatory arguments for the guest/host trace and another argument for the combined output trace file. There is one optional argument to specify the `CLOCK_BOOTTIME` in the guest (in nanoseconds) when the host trace started to help line things up:
+
+`./vperfetto_merge <guest.trace> <host.trace> <combined.trace(forWriting)> [guestTraceStartTimeNs]`
+
+
 # Min option
 
 If you only need track events and counters, set `OPTION_USE_PERFETTO_SDK` to

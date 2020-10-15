@@ -1,5 +1,7 @@
 project(vperfetto)
 cmake_minimum_required(VERSION 3.7)
+find_package(Threads)
+
 include(ExternalProject)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -284,7 +286,8 @@ if (OPTION_PERFETTO_USE_SDK)
         ${CMAKE_CURRENT_SOURCE_DIR})
     set(PERFETTO_TRACING_ONLY_LIBRARIES
         perfetto_trace
-        ${Protobuf_LIBRARIES})
+        ${Protobuf_LIBRARIES}
+        Threads::Threads)
 else()
     set(PERFETTO_TRACING_ONLY_SOURCES
         vperfetto.cpp)
@@ -302,7 +305,8 @@ else()
         pbzero-counter_descriptor
         pbzero-thread_descriptor
         pbzero-track_descriptor
-        pbzero-track_event)
+        pbzero-track_event
+        Threads::Threads)
 endif()
 
 add_library(
@@ -321,3 +325,8 @@ add_executable(
     vperfetto_unittest.cpp)
 
 target_link_libraries(vperfetto_unittests PUBLIC vperfetto gtest_main)
+
+add_executable(
+    vperfetto_merge
+    vperfetto_merge.cpp)
+target_link_libraries(vperfetto_merge PUBLIC vperfetto)

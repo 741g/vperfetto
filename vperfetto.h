@@ -91,4 +91,28 @@ PERFETTO_TRACING_ONLY_EXPORT uint64_t bootTimeNs();
 PERFETTO_TRACING_ONLY_EXPORT void sleepUs(unsigned);
 PERFETTO_TRACING_ONLY_EXPORT void waitSavingDone();
 
+// An API to use offline to combine traces. The user can specify the guest/host trace files
+// along with an optional argument for the guest clock boot time at start of tracing.
+struct TraceCombineConfig {
+    const char* guestFile;
+    const char* hostFile;
+    const char* combinedFile;
+
+    // Whether or not to derive the guest clock boot time from the guest trace.
+    // Less accurate than explicit specification.
+    bool useGuestAbsoluteTime = false;
+    // Guest time when tracing begins, to line up with host.
+    uint64_t guestClockBootTimeNs;
+
+    // Use a time diff instead of absolute time to line up.
+    // Overriden by useSpecifiedGuestAbsoluteTime.
+    bool useGuestTimeDiff = false;
+    uint64_t guestClockTimeDiffNs;
+};
+
+// Reads config.guestFile
+// Reads config.hostFile
+// Writes config.combinedFile
+void combineTraces(const TraceCombineConfig* config);
+
 } // namespace vperfetto

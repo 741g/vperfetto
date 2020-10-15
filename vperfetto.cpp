@@ -724,4 +724,8 @@ PERFETTO_TRACING_ONLY_EXPORT void waitSavingDone() {
     }
 }
 
+PERFETTO_TRACING_ONLY_EXPORT void combineTraces(const TraceCombineConfig* config) {
+    fprintf(stderr, "%s: error: trace combining not available yet in the non-sdk build. Need to refactor combiner into a separate lbirary first.\n", __func__);
+}
+
 } // namespace vperfetto
