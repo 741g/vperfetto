@@ -36,6 +36,7 @@ If you only need track events and counters, set `OPTION_USE_PERFETTO_SDK` to
 # Known issues
 
 Trace counters not yet supported in the SDK variant.
+`vperfetto_merge` must be built with `OPTION_USE_PERFETTO_SDK` `TRUE` or it is useless.
 
 # Library structure
 
