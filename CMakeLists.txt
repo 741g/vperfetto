@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 include(protobuf.cmake)
 include(gtest.cmake)
 
-set(OPTION_PERFETTO_USE_SDK FALSE)
+set(OPTION_PERFETTO_USE_SDK TRUE)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
