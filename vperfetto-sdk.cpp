@@ -152,6 +152,14 @@ PERFETTO_TRACING_ONLY_EXPORT void enableTracing() {
     }
 }
 
+static void mutateTracePackets(::perfetto::protos::Trace& pbtrace,
+    std::function<void(::perfetto::protos::TracePacket* packet)> mutator) {
+    for (int i = 0; i < pbtrace.packet_size(); ++i) {
+        auto* packet = pbtrace.mutable_packet(i);
+        mutator(packet);
+    }
+}
+
 static void iterateTraceTimestamps(
     ::perfetto::protos::Trace& pbtrace,
     std::function<uint64_t(uint64_t)> forEachTimestamp) {
@@ -160,6 +168,16 @@ static void iterateTraceTimestamps(
         auto* packet = pbtrace.mutable_packet(i);
         if (packet->has_timestamp()) {
             packet->set_timestamp(forEachTimestamp(packet->timestamp()));
+        }
+
+        if (packet->has_ftrace_events()) {
+            auto* ftevts = packet->mutable_ftrace_events();
+            for (int j = 0; j < ftevts->event_size(); ++j) {
+                auto* ftev = ftevts->mutable_event(j);
+                if (ftev->has_timestamp()) {
+                    ftev->set_timestamp(forEachTimestamp(ftev->timestamp()));
+                }
+            }
         }
     }
 }
@@ -208,8 +226,11 @@ static void iterateTraceTrackDescriptorUuids(
 // This also takes care of changing UUIDs if a process or thread descriptor gets its id modified.
 static void iterateTraceIds(
     ::perfetto::protos::Trace& pbtrace,
+    std::function<uint32_t(uint32_t)> forEachTrustedUid,
     std::function<uint32_t(uint32_t)> forEachSequenceId,
-    std::function<int32_t(int32_t)> forEachPid) {
+    std::function<int32_t(int32_t)> forEachPid,
+    std::function<int32_t(int32_t)> forEachTid,
+    std::function<int32_t(int32_t)> forEachCpu) {
 
     bool needRemapUuids = false;
     std::unordered_map<uint64_t, uint64_t> uuidMap;
@@ -227,6 +248,11 @@ static void iterateTraceIds(
     for (int i = 0; i < pbtrace.packet_size(); ++i) {
         auto* packet = pbtrace.mutable_packet(i);
 
+        if (packet->has_trusted_uid()) {
+            packet->set_trusted_uid(
+                forEachTrustedUid(packet->trusted_uid()));
+        }
+
         if (packet->has_trusted_packet_sequence_id()) {
             packet->set_trusted_packet_sequence_id(
                 forEachSequenceId(packet->trusted_packet_sequence_id()));
@@ -234,11 +260,107 @@ static void iterateTraceIds(
 
         if (packet->has_ftrace_events()) {
             auto* ftevts = packet->mutable_ftrace_events();
+
+            if (ftevts->has_cpu()) {
+                ftevts->set_cpu(
+                    forEachCpu(ftevts->cpu()));
+            }
+
             for (int j = 0; j < ftevts->event_size(); ++j) {
                 auto* ftev = ftevts->mutable_event(j);
+
                 if (ftev->has_pid()) {
                     ftev->set_pid(
                         forEachPid(ftev->pid()));
+                }
+
+                if (ftev->has_sched_switch()) {
+                    auto* sw = ftev->mutable_sched_switch();
+                    if (sw->has_prev_pid() && (sw->prev_pid() != 0)) {
+                        sw->set_prev_pid(forEachPid(sw->prev_pid()));
+                    }
+                    if (sw->has_next_pid() && (sw->next_pid() != 0)) {
+                        sw->set_next_pid(forEachPid(sw->next_pid()));
+                    }
+                }
+
+                if (ftev->has_sched_wakeup()) {
+                    auto* wakeup = ftev->mutable_sched_wakeup();
+                    if (wakeup->has_pid() && (wakeup->pid() != 0)) {
+                        wakeup->set_pid(forEachPid(wakeup->pid()));
+                    }
+                }
+
+                if (ftev->has_sched_blocked_reason()) {
+                    auto* blockedreason = ftev->mutable_sched_blocked_reason();
+                    if (blockedreason->has_pid() && (blockedreason->pid() != 0)) {
+                        blockedreason->set_pid(forEachPid(blockedreason->pid()));
+                    }
+                }
+
+                if (ftev->has_sched_waking()) {
+                    auto* waking = ftev->mutable_sched_waking();
+                    if (waking->has_pid() && (waking->pid() != 0)) {
+                        waking->set_pid(forEachPid(waking->pid()));
+                    }
+                }
+
+                if (ftev->has_sched_wakeup_new()) {
+                    auto* evt = ftev->mutable_sched_wakeup_new();
+                    if (evt->has_pid() && (evt->pid() != 0)) {
+                        evt->set_pid(forEachPid(evt->pid()));
+                    }
+                }
+
+                if (ftev->has_sched_process_exec()) {
+                    auto* evt = ftev->mutable_sched_process_exec();
+                    if (evt->has_pid() && (evt->pid() != 0)) {
+                        evt->set_pid(forEachPid(evt->pid()));
+                    }
+                    if (evt->has_old_pid() && (evt->old_pid() != 0)) {
+                        evt->set_old_pid(forEachPid(evt->old_pid()));
+                    }
+                }
+
+                if (ftev->has_sched_process_exit()) {
+                    auto* evt = ftev->mutable_sched_process_exit();
+                    if (evt->has_pid() && (evt->pid() != 0)) {
+                        evt->set_pid(forEachPid(evt->pid()));
+                    }
+                    if (evt->has_tgid() && (evt->tgid() != 0)) {
+                        evt->set_tgid(forEachPid(evt->tgid()));
+                    }
+                }
+
+                if (ftev->has_sched_process_fork()) {
+                    auto* evt = ftev->mutable_sched_process_fork();
+                    if (evt->has_parent_pid() && (evt->parent_pid() != 0)) {
+                        evt->set_parent_pid(forEachPid(evt->parent_pid()));
+                    }
+                    if (evt->has_child_pid() && (evt->child_pid() != 0)) {
+                        evt->set_child_pid(forEachPid(evt->child_pid()));
+                    }
+                }
+
+                if (ftev->has_sched_process_free()) {
+                    auto* evt = ftev->mutable_sched_process_free();
+                    if (evt->has_pid() && (evt->pid() != 0)) {
+                        evt->set_pid(forEachPid(evt->pid()));
+                    }
+                }
+
+                if (ftev->has_sched_process_hang()) {
+                    auto* evt = ftev->mutable_sched_process_hang();
+                    if (evt->has_pid() && (evt->pid() != 0)) {
+                        evt->set_pid(forEachPid(evt->pid()));
+                    }
+                }
+
+                if (ftev->has_sched_process_wait()) {
+                    auto* evt = ftev->mutable_sched_process_wait();
+                    if (evt->has_pid() && (evt->pid() != 0)) {
+                        evt->set_pid(forEachPid(evt->pid()));
+                    }
                 }
             }
         }
@@ -276,7 +398,7 @@ static void iterateTraceIds(
             for (int j = 0; j < pt->threads_size(); ++j) {
                 auto* t = pt->mutable_threads(j);
                 if (t->has_tid()) {
-                    t->set_tid(forEachPid(t->tid()));
+                    t->set_tid(forEachTid(t->tid()));
                 }
                 if (t->has_tgid()) {
                     t->set_tgid(forEachPid(t->tgid()));
@@ -300,13 +422,23 @@ static void iterateTraceIds(
 
 static void sCalcMaxIds(
     const std::vector<char>& trace,
+    uint32_t* maxTrustedUidOut,
     uint32_t* maxSequenceIdOut,
-    uint32_t* maxPidOut) {
+    uint32_t* maxPidOut,
+    uint32_t* maxTidOut,
+    uint32_t* maxCpuOut) {
 
     uint32_t maxSequenceId = 0;
     uint32_t maxPid = 0;
+    uint32_t maxTrustedUid = 0;
+    uint32_t maxTid = 0;
+    uint32_t maxCpu = 0;
+
     *maxSequenceIdOut = maxSequenceId;
     *maxPidOut = maxPid;
+    *maxTrustedUidOut = maxTrustedUid;
+    *maxTidOut = maxTid;
+    *maxCpuOut = maxCpu;;
 
     ::perfetto::protos::Trace pbtrace;
     std::string traceStr(trace.begin(), trace.end());
@@ -317,6 +449,12 @@ static void sCalcMaxIds(
     }
 
     iterateTraceIds(pbtrace,
+        [&maxTrustedUid](uint32_t uid) {
+            if (uid > maxTrustedUid) {
+                maxTrustedUid = uid;
+            }
+            return uid;
+        },
         [&maxSequenceId](uint32_t seqid) {
             if (seqid > maxSequenceId) {
                 maxSequenceId = seqid;
@@ -328,12 +466,27 @@ static void sCalcMaxIds(
                 maxPid = pid;
             }
             return pid;
+        },
+        [&maxTid](uint32_t tid) {
+            if (tid > maxTid) {
+                maxTid = tid;
+            }
+            return tid;
+        },
+        [&maxCpu](uint32_t cpu) {
+            if (cpu > maxCpu) {
+                maxCpu = cpu;
+            }
+            return cpu;
         });
 
-    fprintf(stderr, "%s: trace's max seq %u pid %u\n", __func__, maxSequenceId, maxPid);
+    fprintf(stderr, "%s: trace's max trusted uid %u seq %u pid %u\n", __func__, maxTrustedUid, maxSequenceId, maxPid);
 
+    *maxTrustedUidOut = maxTrustedUid;
     *maxSequenceIdOut = maxSequenceId;
     *maxPidOut = maxPid;
+    *maxTidOut = maxTid;
+    *maxCpuOut = maxCpu;;
 }
 
 static std::vector<char> constructCombinedTrace(
@@ -342,10 +495,13 @@ static std::vector<char> constructCombinedTrace(
     uint64_t guestTimeDiff) {
 
     // Calculate the max seqid/pid/tid in the guest
+    uint32_t maxGuestTrustedUid = 0;
     uint32_t maxGuestSequenceId = 0;
     uint32_t maxGuestPid = 0;
+    uint32_t maxGuestTid = 0;
+    uint32_t maxGuestCpu = 0;
 
-    sCalcMaxIds(guestTrace, &maxGuestSequenceId, &maxGuestPid);
+    sCalcMaxIds(guestTrace, &maxGuestTrustedUid, &maxGuestSequenceId, &maxGuestPid, &maxGuestTid, &maxGuestCpu);
 
     ::perfetto::protos::Trace host_pbtrace;
     std::string traceStr(hostTrace.begin(), hostTrace.end());
@@ -360,17 +516,43 @@ static std::vector<char> constructCombinedTrace(
             maxGuestSequenceId,
             maxGuestPid);
 
+    mutateTracePackets(host_pbtrace,
+        [](auto* packet) {
+            bool needReplace = false;
+            if (packet->has_clock_snapshot()) {
+                packet->clear_clock_snapshot();
+            }
+            if (packet->has_service_event()) {
+                packet->clear_service_event();
+            }
+            if (needReplace) {
+                auto* te = packet->mutable_track_event();
+                te->set_type((::perfetto::protos::TrackEvent_Type)(0));
+            }
+        });
+
     iterateTraceTimestamps(host_pbtrace,
         [guestTimeDiff](uint64_t ts) {
             return ts + guestTimeDiff;
         });
 
     iterateTraceIds(host_pbtrace,
+        [maxGuestTrustedUid](uint32_t uid) {
+            return uid + maxGuestTrustedUid;
+        },
         [maxGuestSequenceId](uint32_t seqid) {
             return seqid + maxGuestSequenceId;
         },
-        [maxGuestPid](uint32_t pid) {
-            return pid + maxGuestPid;
+        [maxGuestPid](int32_t pid) {
+            if (pid == 0) return 0;
+            return (int32_t)(pid + maxGuestPid);
+        },
+        [maxGuestTid](int32_t tid) {
+            if (tid == 0) return 0;
+            return (int32_t)(tid + maxGuestTid);
+        },
+        [maxGuestCpu](int32_t cpu) {
+            return cpu + maxGuestCpu + 1;
         });
 
     std::string traceAfter;
@@ -380,6 +562,10 @@ static std::vector<char> constructCombinedTrace(
     combined.resize(guestTrace.size() + traceAfter.size());
     memcpy(combined.data(), guestTrace.data(), guestTrace.size());
     memcpy(combined.data() + guestTrace.size(), traceAfter.data(), traceAfter.size());
+    // memcpy(combined.data(), traceAfter.data(), traceAfter.size());
+    // memcpy(combined.data() + traceAfter.size(), guestTrace.data(), guestTrace.size());
+    // combined.resize(traceAfter.size());
+    // memcpy(combined.data(), traceAfter.data(), traceAfter.size());
 
     return combined;
 }
