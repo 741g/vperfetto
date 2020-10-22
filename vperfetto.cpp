@@ -603,15 +603,15 @@ void TraceStorage::saveTracesToDisk() {
 
 static thread_local TraceContext sThreadLocalTraceContext;
 
-PERFETTO_TRACING_ONLY_EXPORT void setTraceConfig(std::function<void(VirtualDeviceTraceConfig&)> f) {
+VPERFETTO_EXPORT void setTraceConfig(std::function<void(VirtualDeviceTraceConfig&)> f) {
     f(sTraceConfig);
 }
 
-PERFETTO_TRACING_ONLY_EXPORT VirtualDeviceTraceConfig queryTraceConfig() {
+VPERFETTO_EXPORT VirtualDeviceTraceConfig queryTraceConfig() {
     return sTraceConfig;
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void initialize(const bool** tracingDisabledPtr) {
+VPERFETTO_EXPORT void initialize(const bool** tracingDisabledPtr) {
     if (tracingDisabledPtr) {
         *tracingDisabledPtr = &sTraceConfig.tracingDisabled;
     }
@@ -621,7 +621,7 @@ bool useFilenameByEnv(const char* s) {
     return s && ("" != std::string(s));
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void enableTracing() {
+VPERFETTO_EXPORT void enableTracing() {
     const char* hostFilenameByEnv = std::getenv("VPERFETTO_HOST_FILE");
     const char* guestFilenameByEnv = std::getenv("VPERFETTO_GUEST_FILE");
     const char* combinedFilenameByEnv = std::getenv("VPERFETTO_COMBINED_FILE");
@@ -663,7 +663,7 @@ PERFETTO_TRACING_ONLY_EXPORT void enableTracing() {
     sTraceConfig.tracingDisabled = 0;
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void disableTracing() {
+VPERFETTO_EXPORT void disableTracing() {
     // Don't enable or disable tracing if host filename is null
     if (!sTraceConfig.hostFilename) return;
 
@@ -683,22 +683,22 @@ PERFETTO_TRACING_ONLY_EXPORT void disableTracing() {
     sTraceConfig.guestTimeDiff = 0;
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void beginTrace(const char* name) {
+VPERFETTO_EXPORT void beginTrace(const char* name) {
     if (CC_LIKELY(sTraceConfig.tracingDisabled)) return;
     sThreadLocalTraceContext.beginTrace(name);
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void endTrace() {
+VPERFETTO_EXPORT void endTrace() {
     if (CC_LIKELY(sTraceConfig.tracingDisabled)) return;
     sThreadLocalTraceContext.endTrace();
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void traceCounter(const char* name, int64_t val) {
+VPERFETTO_EXPORT void traceCounter(const char* name, int64_t val) {
     if (CC_LIKELY(sTraceConfig.tracingDisabled)) return;
     sThreadLocalTraceContext.traceCounter(name, val);
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void setGuestTime(uint64_t t) {
+VPERFETTO_EXPORT void setGuestTime(uint64_t t) {
     vperfetto::setTraceConfig([t](vperfetto::VirtualDeviceTraceConfig& config) {
         // can only be set before tracing
         if (!config.tracingDisabled) {
@@ -710,21 +710,21 @@ PERFETTO_TRACING_ONLY_EXPORT void setGuestTime(uint64_t t) {
     });
 }
 
-PERFETTO_TRACING_ONLY_EXPORT uint64_t bootTimeNs() {
+VPERFETTO_EXPORT uint64_t bootTimeNs() {
     return (uint64_t)(::perfetto::base::GetBootTimeNs().count());
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void sleepUs(unsigned interval) {
+VPERFETTO_EXPORT void sleepUs(unsigned interval) {
     ::perfetto::base::SleepMicroseconds(interval);
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void waitSavingDone() {
+VPERFETTO_EXPORT void waitSavingDone() {
     while (sTraceConfig.saving) {
         sleepUs(1000000);
     }
 }
 
-PERFETTO_TRACING_ONLY_EXPORT void combineTraces(const TraceCombineConfig* config) {
+VPERFETTO_EXPORT void combineTraces(const TraceCombineConfig* config) {
     fprintf(stderr, "%s: error: trace combining not available yet in the non-sdk build. Need to refactor combiner into a separate lbirary first.\n", __func__);
 }
 
