@@ -334,3 +334,18 @@ add_executable(
     vperfetto_merge
     vperfetto_merge.cpp)
 target_link_libraries(vperfetto_merge PUBLIC vperfetto)
+
+# vperfetto_min, a shared library that's essentially a thin layer over the SDK
+# and only does trace start/stop.
+add_library(
+    vperfetto_min
+    SHARED
+    vperfetto-min.cpp
+    perfetto.cc)
+target_include_directories(
+    vperfetto_min PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(
+    vperfetto_min
+    PRIVATE
+    Threads::Threads)

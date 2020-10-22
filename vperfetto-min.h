@@ -1,0 +1,34 @@
+// Copyright 2020 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef VPERFETTO_EXPORT
+    #ifdef _MSC_VER
+        #define VPERFETTO_EXPORT __declspec(dllexport)
+    #else // _MSC_VER
+        #define VPERFETTO_EXPORT __attribute__((visibility("default")))
+    #endif // !_MSC_VER
+#endif // !VPERFETTO_EXPORT
+
+// Start tracing. This is meant to be triggered when tracing starts in the guest. Use your favorite transport,
+// virtio-gpu, pipe, virtual perfetto, etc etc. Just somehow wire it up :)
+VPERFETTO_EXPORT void vperfetto_min_startTracing(const char* filename);
+
+// End tracing. This is meant to be triggerd when tracing ends in the guest. Again, use your favorite transport.
+// This will also trigger trace saving. It is assumed that at around roughly this time, the host/guest also send over the finished trace from the guest to the host to the path specified in VPERFETTO_GUEST_FILE or traceconfig.guestFilename, such as via `adb pull /data/local/traces/guestfile.trace`.
+// After waiting for a while, the guest/host traces are post processed and catted together into VPERFETTO_COMBINED_FILE.
+VPERFETTO_EXPORT void vperfetto_min_endTracing();
+
+// Start/end a particular track event on the host. By default, every such event is in the 'gfx' category.
+VPERFETTO_EXPORT void vperfetto_min_beginTrackEvent(const char* eventName);
+VPERFETTO_EXPORT void vperfetto_min_endTrackEvent();
