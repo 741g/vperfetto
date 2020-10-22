@@ -279,22 +279,22 @@ add_pbzero_library(${perfetto}/protos/perfetto/trace/track_event track_descripto
 add_pbzero_library(${perfetto}/protos/perfetto/trace/track_event track_event)
 
 if (OPTION_PERFETTO_USE_SDK)
-    set(PERFETTO_TRACING_ONLY_SOURCES
+    set(VPERFETTO_FULL_SOURCES
         perfetto.cc
         vperfetto-sdk.cpp)
-    set(PERFETTO_TRACING_ONLY_INCLUDE
+    set(VPERFETTO_FULL_INCLUDE
         ${CMAKE_CURRENT_SOURCE_DIR})
-    set(PERFETTO_TRACING_ONLY_LIBRARIES
+    set(VPERFETTO_FULL_LIBRARIES
         perfetto_trace
         ${Protobuf_LIBRARIES}
         Threads::Threads)
 else()
-    set(PERFETTO_TRACING_ONLY_SOURCES
+    set(VPERFETTO_FULL_SOURCES
         vperfetto.cpp)
-    set(PERFETTO_TRACING_ONLY_INCLUDE
+    set(VPERFETTO_FULL_INCLUDE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${perfetto}/include)
-    set(PERFETTO_TRACING_ONLY_LIBRARIES
+    set(VPERFETTO_FULL_LIBRARIES
         pbzero-trace_stats
         pbzero-trace_config
         pbzero-clock_snapshot
@@ -309,23 +309,27 @@ else()
         Threads::Threads)
 endif()
 
+# Build targets:
+# vperfetto.so, the library that does it all (callbacks on start/stop, set guest time, trace combining)
 add_library(
     vperfetto
     SHARED
-    ${PERFETTO_TRACING_ONLY_SOURCES})
+    ${VPERFETTO_FULL_SOURCES})
 target_include_directories(
     vperfetto PUBLIC
-    ${PERFETTO_TRACING_ONLY_INCLUDE})
+    ${VPERFETTO_FULL_INCLUDE})
 target_link_libraries(vperfetto
     PRIVATE
-    ${PERFETTO_TRACING_ONLY_LIBRARIES})
+    ${VPERFETTO_FULL_LIBRARIES})
 
+# vperfetto_unittests, a set of test traces
 add_executable(
     vperfetto_unittests
     vperfetto_unittest.cpp)
 
 target_link_libraries(vperfetto_unittests PUBLIC vperfetto gtest_main)
 
+# vperfetto_merge, a tool to combine guest/host traces
 add_executable(
     vperfetto_merge
     vperfetto_merge.cpp)
