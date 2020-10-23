@@ -14,9 +14,9 @@
 
 #ifndef VPERFETTO_EXPORT
     #ifdef _MSC_VER
-        #define VPERFETTO_EXPORT __declspec(dllexport)
+        #define VPERFETTO_EXPORT extern "C" __declspec(dllexport)
     #else // _MSC_VER
-        #define VPERFETTO_EXPORT __attribute__((visibility("default")))
+        #define VPERFETTO_EXPORT extern "C" __attribute__((visibility("default")))
     #endif // !_MSC_VER
 #endif // !VPERFETTO_EXPORT
 
