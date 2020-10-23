@@ -51,3 +51,10 @@ VPERFETTO_EXPORT void vperfetto_min_endTracing();
 // Start/end a particular track event on the host. By default, every such event is in the 'gfx' category.
 VPERFETTO_EXPORT void vperfetto_min_beginTrackEvent(const char* eventName);
 VPERFETTO_EXPORT void vperfetto_min_endTrackEvent();
+
+// Start/end a particular track event in a particular category.
+#define DEFINE_CATEGORY_TRACK_EVENT_DECLARATION(name, desc) \
+    VPERFETTO_EXPORT void vperfetto_min_beginTrackEvent_##name(const char* eventName); \
+    VPERFETTO_EXPORT void vperfetto_min_endTrackEvent_##name(); \
+
+VPERFETTO_LIST_CATEGORIES(DEFINE_CATEGORY_TRACK_EVENT_DECLARATION)

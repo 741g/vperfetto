@@ -177,6 +177,17 @@ VPERFETTO_EXPORT void vperfetto_min_endTrackEvent() {
     TRACE_EVENT_END("gfx");
 }
 
+// Start/end a particular track event in a particular category.
+#define DEFINE_CATEGORY_TRACK_EVENT_DEFINITION(name, desc) \
+    VPERFETTO_EXPORT void vperfetto_min_beginTrackEvent_##name(const char* eventName) { \
+        TRACE_EVENT_BEGIN(#name, ::perfetto::StaticString{eventName}); \
+    } \
+    VPERFETTO_EXPORT void vperfetto_min_endTrackEvent_##name() { \
+        TRACE_EVENT_END(#name); \
+    } \
+
+VPERFETTO_LIST_CATEGORIES(DEFINE_CATEGORY_TRACK_EVENT_DEFINITION)
+
 VPERFETTO_EXPORT void vperfetto_min_traceCounter(const char* name, int64_t value) {
     // TODO: Do stuff. This isn't supported in the SDK currently.
     // What this really needs until its supported in the official sdk:
