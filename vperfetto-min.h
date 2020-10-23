@@ -31,7 +31,17 @@
 
 // Start tracing. This is meant to be triggered when tracing starts in the guest. Use your favorite transport,
 // virtio-gpu, pipe, virtual perfetto, etc etc. Just somehow wire it up :)
-VPERFETTO_EXPORT void vperfetto_min_startTracing(const char* filename);
+enum vperfetto_init_flags {
+    VPERFETTO_INIT_FLAG_USE_INPROCESS_BACKEND = 1 << 0,
+    VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND = 1 << 1,
+};
+
+struct vperfetto_min_config {
+    vperfetto_init_flags init_flags;
+    const char* filename;
+};
+
+VPERFETTO_EXPORT void vperfetto_min_startTracing(const vperfetto_min_config* config);
 
 // End tracing. This is meant to be triggerd when tracing ends in the guest. Again, use your favorite transport.
 // This will also trigger trace saving. It is assumed that at around roughly this time, the host/guest also send over the finished trace from the guest to the host to the path specified in VPERFETTO_GUEST_FILE or traceconfig.guestFilename, such as via `adb pull /data/local/traces/guestfile.trace`.

@@ -57,10 +57,37 @@ static TraceProgress sTraceProgress;
 
 static std::unique_ptr<::perfetto::TracingSession> sTracingSession;
 
-static void initPerfetto() {
+static bool validateConfig(const vperfetto_min_config* config) {
+
+    if (!config->init_flags) {
+        fprintf(stderr, "%s: Error: No init flags specified. Need 0x%x to activate in-process backend, 0x%x to activate system backend.\n", __func__,
+                VPERFETTO_INIT_FLAG_USE_INPROCESS_BACKEND,
+                VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND);
+        return false;
+    }
+
+    if (!(config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND)) {
+        if (!config->filename ||
+            !strcmp("", config->filename)) {
+            fprintf(stderr, "%s: Error: Filename for vperfetto not specified while system backend was requested.\n", __func__);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void initPerfetto(const vperfetto_min_config* config) {
     if (!sPerfettoInitialized) {
         ::perfetto::TracingInitArgs args;
-        args.backends |= ::perfetto::kInProcessBackend;
+
+        if (config->init_flags & VPERFETTO_INIT_FLAG_USE_INPROCESS_BACKEND) {
+            args.backends |= ::perfetto::kInProcessBackend;
+        }
+        if (config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND) {
+            args.backends |= ::perfetto::kSystemBackend;
+        }
+
         ::perfetto::Tracing::Initialize(args);
         ::perfetto::TrackEvent::Register();
         sPerfettoInitialized = true;
@@ -71,59 +98,74 @@ bool useFilenameByEnv(const char* s) {
     return s && ("" != std::string(s));
 }
 
-VPERFETTO_EXPORT void vperfetto_min_startTracing(const char* filename) {
-    sTraceConfig.hostFilename = filename;
+VPERFETTO_EXPORT void vperfetto_min_startTracing(const vperfetto_min_config* config) {
+    if (!validateConfig(config)) {
+        fprintf(stderr, "%s: Not enabling tracing, config was invalid.\n", __func__);
+        return;
+    }
+
+    sTraceConfig.hostFilename = config->filename;
 
     // Ensure perfetto is actually initialized.
-    initPerfetto();
+    initPerfetto(config);
 
-    if (!sTracingSession) {
+    if (sTraceConfig.tracingDisabled) {
         fprintf(stderr, "%s: Tracing begins================================================================================\n", __func__);
         fprintf(stderr, "%s: Configuration:\n", __func__);
         fprintf(stderr, "%s: host filename: %s (possibly set via $VPERFETTO_HOST_FILE)\n", __func__, sTraceConfig.hostFilename);
 
-        auto desc = ::perfetto::ProcessTrack::Current().Serialize();
-        desc.mutable_process()->set_process_name("VirtualMachineMonitorProcess");
-        ::perfetto::TrackEvent::SetTrackDescriptor(::perfetto::ProcessTrack::Current(), desc);
 
-        ::perfetto::TraceConfig cfg;
-        ::perfetto::protos::gen::TrackEventConfig track_event_cfg;
-        // TODO: Should this be another parameter?
-        cfg.add_buffers()->set_size_kb(1024 * 100);  // Record up to 100 MiB.
-        auto* ds_cfg = cfg.add_data_sources()->mutable_config();
-        ds_cfg->set_name("track_event");
-        ds_cfg->set_track_event_config_raw(track_event_cfg.SerializeAsString());
+        if (!(config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND)) {
+            auto desc = ::perfetto::ProcessTrack::Current().Serialize();
+            desc.mutable_process()->set_process_name("VirtualMachineMonitorProcess");
+            ::perfetto::TrackEvent::SetTrackDescriptor(::perfetto::ProcessTrack::Current(), desc);
 
-        sTracingSession = ::perfetto::Tracing::NewTrace();
-        sTracingSession->Setup(cfg);
-        sTracingSession->StartBlocking();
+            ::perfetto::TraceConfig cfg;
+            ::perfetto::protos::gen::TrackEventConfig track_event_cfg;
+
+            // TODO: Should this be another parameter?
+            cfg.add_buffers()->set_size_kb(1024 * 100);  // Record up to 100 MiB.
+            auto* ds_cfg = cfg.add_data_sources()->mutable_config();
+            ds_cfg->set_name("track_event");
+            ds_cfg->set_track_event_config_raw(track_event_cfg.SerializeAsString());
+
+            sTracingSession = ::perfetto::Tracing::NewTrace();
+            sTracingSession->Setup(cfg);
+            sTracingSession->StartBlocking();
+        }
         sTraceConfig.tracingDisabled = false;
     }
 }
 
 VPERFETTO_EXPORT void vperfetto_min_endTracing() {
-    if (sTracingSession) {
+    if (!sTraceConfig.tracingDisabled) {
         sTraceConfig.tracingDisabled = true;
 
         // Don't disable again if we are saving.
         if (sTraceConfig.saving) return;
         sTraceConfig.saving = true;
 
-        sTracingSession->StopBlocking();
-        sTraceProgress.hostTrace = sTracingSession->ReadTraceBlocking();
+        if (sTracingSession) {
+            sTracingSession->StopBlocking();
+            sTraceProgress.hostTrace = sTracingSession->ReadTraceBlocking();
 
-        fprintf(stderr, "%s: Tracing ended================================================================================\n", __func__);
-        fprintf(stderr, "%s: Saving trace to disk. Configuration:\n", __func__);
-        fprintf(stderr, "%s: host filename: %s\n", __func__, sTraceConfig.hostFilename);
+            fprintf(stderr, "%s: Tracing ended================================================================================\n", __func__);
+            fprintf(stderr, "%s: Saving trace to disk. Configuration:\n", __func__);
+            fprintf(stderr, "%s: host filename: %s\n", __func__, sTraceConfig.hostFilename);
 
-        sTracingSession.reset();
+            sTracingSession.reset();
 
-       const char* hostFilename = sTraceConfig.hostFilename;
-       {
-           std::ofstream hostFile(sTraceConfig.hostFilename, std::ios::out | std::ios::binary);
-           hostFile.write(sTraceProgress.hostTrace.data(), sTraceProgress.hostTrace.size());
-       }
-       sTraceConfig.saving = false;
+            const char* hostFilename = sTraceConfig.hostFilename;
+            {
+                std::ofstream hostFile(sTraceConfig.hostFilename, std::ios::out | std::ios::binary);
+                hostFile.write(sTraceProgress.hostTrace.data(), sTraceProgress.hostTrace.size());
+            }
+            sTraceConfig.saving = false;
+        } else {
+            fprintf(stderr, "%s: Tracing ended================================================================================\n", __func__);
+            fprintf(stderr, "%s: No tracing session (assuming system backend), not saving a separate file\n", __func__);
+            ::perfetto::TrackEvent::Flush();
+        }
     }
 }
 
