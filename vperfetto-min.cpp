@@ -7,9 +7,14 @@
 #include <fstream>
 #include <unordered_map>
 
+#define DEFINE_PERFETTO_CATEGORY(name, description) \
+    ::perfetto::Category(#name).SetDescription(description),
+
 PERFETTO_DEFINE_CATEGORIES(
-    ::perfetto::Category("gfx")
-        .SetDescription("Events from the graphics subsystem"));
+    VPERFETTO_LIST_CATEGORIES(DEFINE_PERFETTO_CATEGORY)
+    ::perfetto::Category("misc")
+    .SetDescription("General events that aren't graphics and don't fall under the above categories"));
+
 PERFETTO_TRACK_EVENT_STATIC_STORAGE();
 
 #define TRACE_COUNTER(category, name, value)  \

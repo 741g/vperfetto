@@ -20,6 +20,15 @@
     #endif // !_MSC_VER
 #endif // !VPERFETTO_EXPORT
 
+// Categories that vperfetto_min is capable of tracking.
+#define VPERFETTO_LIST_CATEGORIES(f) \
+    f(OpenGL, "OpenGL(ES) calls") \
+    f(Vulkan, "Vulkan calls") \
+    f(EGL, "EGL calls") \
+    f(Driver, "Driver internals") \
+    f(VMM, "VMM internals") \
+    f(gfx, "General graphics events that don't fall under the above categories") \
+
 // Start tracing. This is meant to be triggered when tracing starts in the guest. Use your favorite transport,
 // virtio-gpu, pipe, virtual perfetto, etc etc. Just somehow wire it up :)
 VPERFETTO_EXPORT void vperfetto_min_startTracing(const char* filename);
