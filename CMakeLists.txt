@@ -349,3 +349,9 @@ target_link_libraries(
     vperfetto_min
     PRIVATE
     Threads::Threads)
+
+# Unittests for vperfetto_min
+add_executable(
+    vperfetto_min_unittests
+    vperfetto_min_unittest.cpp)
+target_link_libraries(vperfetto_min_unittests PUBLIC vperfetto_min gtest_main)
