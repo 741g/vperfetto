@@ -19,13 +19,8 @@ PERFETTO_TRACK_EVENT_STATIC_STORAGE();
             ctx.event()->set_counter_value(value); \
             })
 
-#ifdef __cplusplus
 #   define CC_LIKELY( exp )    (__builtin_expect( !!(exp), true ))
 #   define CC_UNLIKELY( exp )  (__builtin_expect( !!(exp), false ))
-#else
-#   define CC_LIKELY( exp )    (__builtin_expect( !!(exp), 1 ))
-#   define CC_UNLIKELY( exp )  (__builtin_expect( !!(exp), 0 ))
-#endif
 
 namespace vperfetto {
 
