@@ -5,6 +5,7 @@ find_package(Threads)
 set(CMAKE_CXX_STANDARD 17)
 
 include(protobuf.cmake)
+include(GNUInstallDirs)
 
 option(OPTION_PERFETTO_USE_SDK "Whether to use the full tracing SDK" TRUE)
 option(OPTION_BUILD_TESTS "Whether to build the tests" TRUE)
@@ -354,6 +355,11 @@ target_link_libraries(
     PRIVATE
     Threads::Threads)
 
+install(TARGETS vperfetto_min
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(FILES vperfetto-min.h DESTINATION include)
 
 if (OPTION_BUILD_TESTS)
    # Unittests for vperfetto_min
