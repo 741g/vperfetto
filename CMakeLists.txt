@@ -362,6 +362,9 @@ install(TARGETS vperfetto_min
 
 install(FILES vperfetto-min.h DESTINATION include)
 
+configure_file(vperfetto_min.pc.in vperfetto_min.pc @ONLY)
+install(FILES ${CMAKE_BINARY_DIR}/vperfetto_min.pc DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig)
+
 if (OPTION_BUILD_TESTS)
    # Unittests for vperfetto_min
    add_executable(
