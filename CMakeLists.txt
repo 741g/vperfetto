@@ -339,7 +339,7 @@ endif ()
 add_executable(
     vperfetto_merge
     vperfetto_merge.cpp)
-target_link_libraries(vperfetto_merge PUBLIC vperfetto)
+target_link_libraries(vperfetto_merge PUBLIC vperfetto stdc++fs)
 
 # vperfetto_min, a shared library that's essentially a thin layer over the SDK
 # and only does trace start/stop.
