@@ -2,14 +2,17 @@ project(vperfetto)
 cmake_minimum_required(VERSION 3.7)
 find_package(Threads)
 
-include(ExternalProject)
-
 set(CMAKE_CXX_STANDARD 17)
 
 include(protobuf.cmake)
-include(gtest.cmake)
+include(GNUInstallDirs)
 
-set(OPTION_PERFETTO_USE_SDK TRUE)
+option(OPTION_PERFETTO_USE_SDK "Whether to use the full tracing SDK" TRUE)
+option(OPTION_BUILD_TESTS "Whether to build the tests" TRUE)
+
+if (OPTION_BUILD_TESTS)
+    include(gtest.cmake)
+endif ()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -283,7 +286,8 @@ if (OPTION_PERFETTO_USE_SDK)
         perfetto.cc
         vperfetto-sdk.cpp)
     set(VPERFETTO_FULL_INCLUDE
-        ${CMAKE_CURRENT_SOURCE_DIR})
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR})
     set(VPERFETTO_FULL_LIBRARIES
         perfetto_trace
         ${Protobuf_LIBRARIES}
@@ -322,18 +326,20 @@ target_link_libraries(vperfetto
     PRIVATE
     ${VPERFETTO_FULL_LIBRARIES})
 
-# vperfetto_unittests, a set of test traces
-add_executable(
-    vperfetto_unittests
-    vperfetto_unittest.cpp)
+if (OPTION_BUILD_TESTS)
+   # vperfetto_unittests, a set of test traces
+   add_executable(
+       vperfetto_unittests
+       vperfetto_unittest.cpp)
 
-target_link_libraries(vperfetto_unittests PUBLIC vperfetto gtest_main)
+   target_link_libraries(vperfetto_unittests PUBLIC vperfetto gtest_main)
+endif ()
 
 # vperfetto_merge, a tool to combine guest/host traces
 add_executable(
     vperfetto_merge
     vperfetto_merge.cpp)
-target_link_libraries(vperfetto_merge PUBLIC vperfetto)
+target_link_libraries(vperfetto_merge PUBLIC vperfetto stdc++fs)
 
 # vperfetto_min, a shared library that's essentially a thin layer over the SDK
 # and only does trace start/stop.
@@ -350,8 +356,19 @@ target_link_libraries(
     PRIVATE
     Threads::Threads)
 
-# Unittests for vperfetto_min
-add_executable(
-    vperfetto_min_unittests
-    vperfetto_min_unittest.cpp)
-target_link_libraries(vperfetto_min_unittests PUBLIC vperfetto_min gtest_main)
+install(TARGETS vperfetto_min
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(FILES vperfetto-min.h DESTINATION include)
+
+configure_file(vperfetto_min.pc.in vperfetto_min.pc @ONLY)
+install(FILES ${CMAKE_BINARY_DIR}/vperfetto_min.pc DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig)
+
+if (OPTION_BUILD_TESTS)
+   # Unittests for vperfetto_min
+   add_executable(
+       vperfetto_min_unittests
+       vperfetto_min_unittest.cpp)
+   target_link_libraries(vperfetto_min_unittests PUBLIC vperfetto_min gtest_main)
+endif ()

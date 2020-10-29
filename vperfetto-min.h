@@ -16,7 +16,11 @@
     #ifdef _MSC_VER
         #define VPERFETTO_EXPORT extern "C" __declspec(dllexport)
     #else // _MSC_VER
-        #define VPERFETTO_EXPORT extern "C" __attribute__((visibility("default")))
+        #ifdef __cplusplus
+            #define VPERFETTO_EXPORT extern "C" __attribute__((visibility("default")))
+        #else
+            #define VPERFETTO_EXPORT __attribute__((visibility("default")))
+        #endif
     #endif // !_MSC_VER
 #endif // !VPERFETTO_EXPORT
 
@@ -37,11 +41,11 @@ enum vperfetto_init_flags {
 };
 
 struct vperfetto_min_config {
-    vperfetto_init_flags init_flags;
+    enum vperfetto_init_flags init_flags;
     const char* filename;
 };
 
-VPERFETTO_EXPORT void vperfetto_min_startTracing(const vperfetto_min_config* config);
+VPERFETTO_EXPORT void vperfetto_min_startTracing(const struct vperfetto_min_config* config);
 
 // End tracing. This is meant to be triggerd when tracing ends in the guest. Again, use your favorite transport.
 // This will also trigger trace saving. It is assumed that at around roughly this time, the host/guest also send over the finished trace from the guest to the host to the path specified in VPERFETTO_GUEST_FILE or traceconfig.guestFilename, such as via `adb pull /data/local/traces/guestfile.trace`.
