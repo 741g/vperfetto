@@ -286,7 +286,8 @@ if (OPTION_PERFETTO_USE_SDK)
         perfetto.cc
         vperfetto-sdk.cpp)
     set(VPERFETTO_FULL_INCLUDE
-        ${CMAKE_CURRENT_SOURCE_DIR})
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR})
     set(VPERFETTO_FULL_LIBRARIES
         perfetto_trace
         ${Protobuf_LIBRARIES}
