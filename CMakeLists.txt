@@ -2,14 +2,16 @@ project(vperfetto)
 cmake_minimum_required(VERSION 3.7)
 find_package(Threads)
 
-include(ExternalProject)
-
 set(CMAKE_CXX_STANDARD 17)
 
 include(protobuf.cmake)
-include(gtest.cmake)
 
-set(OPTION_PERFETTO_USE_SDK TRUE)
+option(OPTION_PERFETTO_USE_SDK "Whether to use the full tracing SDK" TRUE)
+option(OPTION_BUILD_TESTS "Whether to build the tests" TRUE)
+
+if (OPTION_BUILD_TESTS)
+    include(gtest.cmake)
+endif ()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -322,12 +324,14 @@ target_link_libraries(vperfetto
     PRIVATE
     ${VPERFETTO_FULL_LIBRARIES})
 
-# vperfetto_unittests, a set of test traces
-add_executable(
-    vperfetto_unittests
-    vperfetto_unittest.cpp)
+if (OPTION_BUILD_TESTS)
+   # vperfetto_unittests, a set of test traces
+   add_executable(
+       vperfetto_unittests
+       vperfetto_unittest.cpp)
 
-target_link_libraries(vperfetto_unittests PUBLIC vperfetto gtest_main)
+   target_link_libraries(vperfetto_unittests PUBLIC vperfetto gtest_main)
+endif ()
 
 # vperfetto_merge, a tool to combine guest/host traces
 add_executable(
@@ -350,8 +354,11 @@ target_link_libraries(
     PRIVATE
     Threads::Threads)
 
-# Unittests for vperfetto_min
-add_executable(
-    vperfetto_min_unittests
-    vperfetto_min_unittest.cpp)
-target_link_libraries(vperfetto_min_unittests PUBLIC vperfetto_min gtest_main)
+
+if (OPTION_BUILD_TESTS)
+   # Unittests for vperfetto_min
+   add_executable(
+       vperfetto_min_unittests
+       vperfetto_min_unittest.cpp)
+   target_link_libraries(vperfetto_min_unittests PUBLIC vperfetto_min gtest_main)
+endif ()
