@@ -89,8 +89,13 @@ static void initPerfetto(const vperfetto_min_config* config) {
             args.backends |= ::perfetto::kSystemBackend;
         }
 
+        args.shmem_size_hint_kb = config->shmem_size_hint_kb;
+
         ::perfetto::Tracing::Initialize(args);
-        ::perfetto::TrackEvent::Register();
+        if (!::perfetto::TrackEvent::Register()) {
+            PERFETTO_LOG("Error: Failed to register track events!");
+            return;
+        }
         sPerfettoInitialized = true;
 
         if (config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND) {
@@ -193,7 +198,9 @@ VPERFETTO_EXPORT void vperfetto_min_endTrackEvent() {
 // Start/end a particular track event in a particular category.
 #define DEFINE_CATEGORY_TRACK_EVENT_DEFINITION(name, desc) \
     VPERFETTO_EXPORT void vperfetto_min_beginTrackEvent_##name(const char* eventName) { \
-        TRACE_EVENT_BEGIN(#name, ::perfetto::StaticString{eventName}); \
+        TRACE_EVENT_BEGIN(#name, nullptr, [&](perfetto::EventContext ctx) { \
+         ctx.event()->set_name(eventName);                                       \
+      });                                                                    \
     } \
     VPERFETTO_EXPORT void vperfetto_min_endTrackEvent_##name() { \
         TRACE_EVENT_END(#name); \

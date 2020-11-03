@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stdint.h>
+
 #ifndef VPERFETTO_EXPORT
     #ifdef _MSC_VER
         #define VPERFETTO_EXPORT extern "C" __declspec(dllexport)
@@ -43,6 +45,7 @@ enum vperfetto_init_flags {
 struct vperfetto_min_config {
     enum vperfetto_init_flags init_flags;
     const char* filename;
+    uint32_t shmem_size_hint_kb;
 };
 
 VPERFETTO_EXPORT void vperfetto_min_startTracing(const struct vperfetto_min_config* config);
