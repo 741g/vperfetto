@@ -97,18 +97,6 @@ static void initPerfetto(const vperfetto_min_config* config) {
             return;
         }
         sPerfettoInitialized = true;
-
-        if (config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND) {
-            // When using the sdk with the system backend, we actually need tp
-            // spin a bit on acknowledgement that our category was enabled.
-            // Do that here.
-
-            PERFETTO_LOG("Waiting for tracing to start...");
-            while (!TRACE_EVENT_CATEGORY_ENABLED("gfx")) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            PERFETTO_LOG("Tracing started");
-        }
     }
 }
 
