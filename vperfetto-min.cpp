@@ -92,7 +92,10 @@ static void initPerfetto(const vperfetto_min_config* config) {
         args.shmem_size_hint_kb = config->shmem_size_hint_kb;
 
         ::perfetto::Tracing::Initialize(args);
-        ::perfetto::TrackEvent::Register();
+        if (!::perfetto::TrackEvent::Register()) {
+            PERFETTO_LOG("Error: Failed to register track events!");
+            return;
+        }
         sPerfettoInitialized = true;
 
         if (config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND) {
