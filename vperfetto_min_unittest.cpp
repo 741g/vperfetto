@@ -50,6 +50,10 @@ static void runTrace(const vperfetto_min_config* config, uint32_t iterations) {
     vperfetto_min_endTracing();
 }
 
+static void sOnTracingStateChange(bool enabled) {
+    fprintf(stderr, "%s: tracing state change: %d\n", __func__, enabled);
+}
+
 TEST(VperfettoMin, Basic) {
     static char trace1FileName[L_tmpnam];
 
@@ -60,7 +64,10 @@ TEST(VperfettoMin, Basic) {
 
     fprintf(stderr, "%s: temp names: %s\n", __func__, trace1FileName);
 
+    int tracingEnabled;
+
     vperfetto_min_config config = {
+        sOnTracingStateChange,
         VPERFETTO_INIT_FLAG_USE_INPROCESS_BACKEND,
         trace1FileName,
     };
