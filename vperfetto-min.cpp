@@ -32,6 +32,8 @@ namespace vperfetto {
 
 static bool sPerfettoInitialized = false;
 
+static on_tracing_state_change_t sOnTracingStateChange;
+
 static VirtualDeviceTraceConfig sTraceConfig = {
     .initialized = false,
     .tracingDisabled = true,
@@ -60,6 +62,11 @@ static std::unique_ptr<::perfetto::TracingSession> sTracingSession;
 
 static bool validateConfig(const vperfetto_min_config* config) {
 
+    if (!config->on_tracing_state_change) {
+        fprintf(stderr, "%s: Error: No tracing statechange callback specified.\n", __func__);
+        return false;
+    }
+
     if (!config->init_flags) {
         fprintf(stderr, "%s: Error: No init flags specified. Need 0x%x to activate in-process backend, 0x%x to activate system backend.\n", __func__,
                 VPERFETTO_INIT_FLAG_USE_INPROCESS_BACKEND,
@@ -80,6 +87,7 @@ static bool validateConfig(const vperfetto_min_config* config) {
 
 static void initPerfetto(const vperfetto_min_config* config) {
     if (!sPerfettoInitialized) {
+
         ::perfetto::TracingInitArgs args;
 
         if (config->init_flags & VPERFETTO_INIT_FLAG_USE_INPROCESS_BACKEND) {
@@ -111,6 +119,7 @@ VPERFETTO_EXPORT void vperfetto_min_startTracing(const vperfetto_min_config* con
     }
 
     sTraceConfig.hostFilename = config->filename;
+    sOnTracingStateChange = config->on_tracing_state_change;
 
     // Ensure perfetto is actually initialized.
     initPerfetto(config);
@@ -119,7 +128,6 @@ VPERFETTO_EXPORT void vperfetto_min_startTracing(const vperfetto_min_config* con
         fprintf(stderr, "%s: Tracing begins================================================================================\n", __func__);
         fprintf(stderr, "%s: Configuration:\n", __func__);
         fprintf(stderr, "%s: host filename: %s (possibly set via $VPERFETTO_HOST_FILE)\n", __func__, sTraceConfig.hostFilename);
-
 
         if (!(config->init_flags & VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND)) {
             auto desc = ::perfetto::ProcessTrack::Current().Serialize();
@@ -137,6 +145,8 @@ VPERFETTO_EXPORT void vperfetto_min_startTracing(const vperfetto_min_config* con
 
             sTracingSession = ::perfetto::Tracing::NewTrace();
             sTracingSession->Setup(cfg);
+            sTracingSession->SetOnStartCallback([]() { sOnTracingStateChange(true /* enabled */); });
+            sTracingSession->SetOnStopCallback([]() { sOnTracingStateChange(false /* enabled */); });
             sTracingSession->StartBlocking();
         }
         sTraceConfig.tracingDisabled = false;

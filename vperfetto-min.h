@@ -42,7 +42,10 @@ enum vperfetto_init_flags {
     VPERFETTO_INIT_FLAG_USE_SYSTEM_BACKEND = 1 << 1,
 };
 
+typedef void (*on_tracing_state_change_t)(bool);
+
 struct vperfetto_min_config {
+    on_tracing_state_change_t on_tracing_state_change;
     enum vperfetto_init_flags init_flags;
     const char* filename;
     uint32_t shmem_size_hint_kb;
