@@ -39,8 +39,10 @@ static bool sValidFilename(const char* fn) {
 int main(int argc, char** argv) {
     vperfetto::TraceCombineConfig config;
 
-    if ((argc != 4) && (argc != 5)) {
-        fprintf(stderr, "%s: error: invalid usage of vperfetto_merge. Usage: vperfetto_merge <guestTraceFile> <hostTraceFile> <combinedTraceFile> [guestClockBootTimeNsWhenHostTracingStarted]>\n", __func__);
+    if ((argc != 4) && (argc != 5) && (argc != 6)) {
+        fprintf(stderr, "%s: error: invalid usage of vperfetto_merge. Usage: vperfetto_merge <guestTraceFile> <hostTraceFile> <combinedTraceFile>"
+            " [<guestClockBootTimeNsWhenHostTracingStarted>]"
+            " [--guest-tsc-offset <guest tsc-offset, ie: host file /sys/kernel/debug/kvm/4678-27/vcpu0/tsc-offset>]\n", __func__);
         return 1;
     } else {
         const char* guestFile = argv[1];
@@ -60,6 +62,7 @@ int main(int argc, char** argv) {
 
         config.useGuestAbsoluteTime = false;
         config.useGuestTimeDiff = false;
+        config.guestTscOffset = 0;
 
         if (argc == 5) {
             // User specified guest boottime
@@ -72,6 +75,17 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "using specified guest time diff: %llu\n", (unsigned long long)guestClockBootTimeNs);
                 config.guestClockBootTimeNs = guestClockBootTimeNs;
                 config.useGuestAbsoluteTime = true;
+            }
+        } else if (argc == 6 && std::string(argv[4]) == "--guest-tsc-offset") {
+            // User specified guest boottime
+            int64_t guestTscOffset;
+            std::istringstream ss(argv[5]);
+            if (!(ss >> guestTscOffset)) {
+                fprintf(stderr, "ERROR: Failed to parse guest-tsc-offset. Provided: [%s]\n", argv[5]);
+                return 1;
+            } else {
+                fprintf(stderr, "using specified guest-tsc-offset: %llu\n", (unsigned long long)guestTscOffset);
+                config.guestTscOffset = guestTscOffset;
             }
         } else { // TODO: an arg for guest time diff
             // Derived guest boottime
