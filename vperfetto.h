@@ -110,6 +110,9 @@ struct TraceCombineConfig {
 
     // Use a tsc offset when deriving time sync between host and guest using rdtsc.
     int64_t guestTscOffset = 0;
+
+    // Merge guest events into host space if true; otherwise merge host events into guest.
+    bool mergeGuestIntoHost = false;
 };
 
 // Reads config.guestFile
