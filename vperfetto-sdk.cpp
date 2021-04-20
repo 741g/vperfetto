@@ -1,5 +1,6 @@
 #include "perfetto.h"
 #include "vperfetto.h"
+#include "vperfetto-util.h"
 #include "proto/perfetto_trace.pb.h"
 
 #include <string>
@@ -134,7 +135,7 @@ VPERFETTO_EXPORT void enableTracing() {
         fprintf(stderr, "%s: host filename: %s (possibly set via $VPERFETTO_HOST_FILE)\n", __func__, sTraceConfig.hostFilename);
         fprintf(stderr, "%s: guest filename: %s (possibly set via $VPERFETTO_GUEST_FILE)\n", __func__, sTraceConfig.guestFilename);
         fprintf(stderr, "%s: combined filename: %s (possibly set via $VPERFETTO_COMBINED_FILE)\n", __func__, sTraceConfig.combinedFilename);
-        fprintf(stderr, "%s: guest time diff to add to host time: %llu\n", __func__, (unsigned long long)sTraceConfig.guestTimeDiff);
+        fprintf(stderr, "%s: guest time diff to add to host time: %lld\n", __func__, (long long)sTraceConfig.guestTimeDiff);
 
         auto desc = ::perfetto::ProcessTrack::Current().Serialize();
         desc.mutable_process()->set_process_name("VirtualMachineMonitorProcess");
@@ -496,34 +497,35 @@ static void sCalcMaxIds(
     *maxCpuOut = maxCpu;;
 }
 
+// Transforms addonTrace timestamps into mainTrace space and merges with mainTrace.
 static std::vector<char> constructCombinedTrace(
-    const std::vector<char>& guestTrace,
-    const std::vector<char>& hostTrace,
-    uint64_t guestTimeDiff) {
+    const std::vector<char>& mainTrace,
+    const std::vector<char>& addonTrace,
+    int64_t mainTimeDiff) {
 
-    // Calculate the max seqid/pid/tid in the guest
-    uint32_t maxGuestTrustedUid = 0;
-    uint32_t maxGuestSequenceId = 0;
-    uint32_t maxGuestPid = 0;
-    uint32_t maxGuestTid = 0;
-    uint32_t maxGuestCpu = 0;
+    // Calculate the max seqid/pid/tid in the main
+    uint32_t maxMainTrustedUid = 0;
+    uint32_t maxMainSequenceId = 0;
+    uint32_t maxMainPid = 0;
+    uint32_t maxMainTid = 0;
+    uint32_t maxMainCpu = 0;
 
-    sCalcMaxIds(guestTrace, &maxGuestTrustedUid, &maxGuestSequenceId, &maxGuestPid, &maxGuestTid, &maxGuestCpu);
+    sCalcMaxIds(mainTrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
 
-    ::perfetto::protos::Trace host_pbtrace;
-    std::string traceStr(hostTrace.begin(), hostTrace.end());
+    ::perfetto::protos::Trace addon_pbtrace;
+    std::string traceStr(addonTrace.begin(), addonTrace.end());
 
-    if (!host_pbtrace.ParseFromString(traceStr)) {
+    if (!addon_pbtrace.ParseFromString(traceStr)) {
         fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
         return {};
     }
 
-    fprintf(stderr, "%s: postprocessing trace with guest time diff of %llu, and offseting by guest max seqid %u, max pid %u\n", __func__,
-            (unsigned long long)guestTimeDiff,
-            maxGuestSequenceId,
-            maxGuestPid);
+    fprintf(stderr, "%s: postprocessing trace with main time diff of %lld, and offseting by main max seqid %u, max pid %u\n", __func__,
+            (long long)mainTimeDiff,
+            maxMainSequenceId,
+            maxMainPid);
 
-    mutateTracePackets(host_pbtrace,
+    mutateTracePackets(addon_pbtrace,
         [](auto* packet) {
             bool needReplace = false;
             if (packet->has_clock_snapshot()) {
@@ -538,39 +540,39 @@ static std::vector<char> constructCombinedTrace(
             }
         });
 
-    iterateTraceTimestamps(host_pbtrace,
-        [guestTimeDiff](uint64_t ts) {
-            return ts + guestTimeDiff;
+    iterateTraceTimestamps(addon_pbtrace,
+        [mainTimeDiff](uint64_t ts) {
+            return ts + mainTimeDiff;
         });
 
-    iterateTraceIds(host_pbtrace,
-        [maxGuestTrustedUid](uint32_t uid) {
-            return uid + maxGuestTrustedUid;
+    iterateTraceIds(addon_pbtrace,
+        [maxMainTrustedUid](uint32_t uid) {
+            return uid + maxMainTrustedUid;
         },
-        [maxGuestSequenceId](uint32_t seqid) {
-            return seqid + maxGuestSequenceId;
+        [maxMainSequenceId](uint32_t seqid) {
+            return seqid + maxMainSequenceId;
         },
-        [maxGuestPid](int32_t pid) {
+        [maxMainPid](int32_t pid) {
             if (pid == 0) return 0;
-            return (int32_t)(pid + maxGuestPid);
+            return (int32_t)(pid + maxMainPid);
         },
-        [maxGuestTid](int32_t tid) {
+        [maxMainTid](int32_t tid) {
             if (tid == 0) return 0;
-            return (int32_t)(tid + maxGuestTid);
+            return (int32_t)(tid + maxMainTid);
         },
-        [maxGuestCpu](int32_t cpu) {
-            return cpu + maxGuestCpu + 1;
+        [maxMainCpu](int32_t cpu) {
+            return cpu + maxMainCpu + 1;
         });
 
     std::string traceAfter;
-    host_pbtrace.SerializeToString(&traceAfter);
+    addon_pbtrace.SerializeToString(&traceAfter);
 
     std::vector<char> combined;
-    combined.resize(guestTrace.size() + traceAfter.size());
-    memcpy(combined.data(), guestTrace.data(), guestTrace.size());
-    memcpy(combined.data() + guestTrace.size(), traceAfter.data(), traceAfter.size());
+    combined.resize(mainTrace.size() + traceAfter.size());
+    memcpy(combined.data(), mainTrace.data(), mainTrace.size());
+    memcpy(combined.data() + mainTrace.size(), traceAfter.data(), traceAfter.size());
     // memcpy(combined.data(), traceAfter.data(), traceAfter.size());
-    // memcpy(combined.data() + traceAfter.size(), guestTrace.data(), guestTrace.size());
+    // memcpy(combined.data() + traceAfter.size(), mainTrace.data(), mainTrace.size());
     // combined.resize(traceAfter.size());
     // memcpy(combined.data(), traceAfter.data(), traceAfter.size());
 
@@ -723,7 +725,7 @@ VPERFETTO_EXPORT void setGuestTime(uint64_t t) {
         fprintf(stderr, "vperfetto::setGuestTime: to %llu\n", __func__, (unsigned long long)t);
         config.guestStartTime = t;
         config.hostStartTime = (uint64_t)(::perfetto::base::GetWallTimeNs().count());
-        config.guestTimeDiff = config.guestStartTime - config.hostStartTime;
+        config.guestTimeDiff = getSignedDifference(config.guestStartTime, config.hostStartTime);
     });
 }
 
@@ -814,7 +816,7 @@ bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCp
     return false;
 }
 
-static uint64_t deriveGuestTimeDiffWithGuestAbsoluteTime(
+static int64_t deriveGuestTimeDiffWithGuestAbsoluteTime(
     const std::vector<char>& hostTrace, uint64_t guestBootTimeNs) {
 
     fprintf(stderr, "%s: Deriving guest time diff from host trace and guest abs time of %llu ns\n", __func__,
@@ -822,13 +824,13 @@ static uint64_t deriveGuestTimeDiffWithGuestAbsoluteTime(
 
     uint64_t hostStartTimeNs = getTraceStartTime(hostTrace);
 
-    uint64_t diff = guestBootTimeNs - hostStartTimeNs;
+    int64_t diff = getSignedDifference(guestBootTimeNs, hostStartTimeNs);
 
-    fprintf(stderr, "%s: time diff: %llu\n", __func__, (unsigned long long)diff);
+    fprintf(stderr, "%s: time diff: %lld\n", __func__, (long long)diff);
     return diff;
 }
 
-static uint64_t deriveGuestTimeDiff(
+static int64_t deriveGuestTimeDiff(
     const std::vector<char>& guestTrace,
     const std::vector<char>& hostTrace,
     int64_t tscOffset) {
@@ -845,20 +847,16 @@ static uint64_t deriveGuestTimeDiff(
         guestSync.cpuTime -= tscOffset;
         fprintf(stderr, "%s: CPU cycles/nanos: host %f, guest %f\n", __func__, hostSync.cpuCyclesPerNano,
                 guestSync.cpuCyclesPerNano);
+
         // Guest and host frequency measurement should match.
         double diffGuestHostFreq = abs(hostSync.cpuCyclesPerNano / guestSync.cpuCyclesPerNano - 1.0);
         if (diffGuestHostFreq > 0.0001)
-            fprintf(stderr, "%s: Warning: guest and host CPU timer frequencies off by %.4f %%\n",
+            fprintf(stderr, "%s: Warning: guest and host CPU timer frequencies off by %0.4f %%\n",
                 __func__, 100.0 * diffGuestHostFreq);
+
         double cyclesPerNano = hostSync.cpuCyclesPerNano;
-        int64_t offsetNs = 0;
-        if (hostSync.cpuTime > guestSync.cpuTime) {
-            double cyclesDelta = (double)(hostSync.cpuTime - guestSync.cpuTime);
-            offsetNs = (int64_t)(cyclesDelta / cyclesPerNano);
-        } else {
-            double cyclesDelta = (double)(guestSync.cpuTime - hostSync.cpuTime);
-            offsetNs = -(int64_t)(cyclesDelta / cyclesPerNano);
-        }
+        double cyclesDelta = (double)getSignedDifference(hostSync.cpuTime, guestSync.cpuTime);
+        int64_t offsetNs = (int64_t)(cyclesDelta / cyclesPerNano);
         double offsetSec = (double)offsetNs / 1000000000.0;
         fprintf(stderr, "%s: CPU sync begin trace offset %f seconds\n", __func__, offsetSec);
         if (offsetSec > 10.0)
@@ -873,10 +871,10 @@ static uint64_t deriveGuestTimeDiff(
     uint64_t guestStartTimeNs = getTraceStartTime(guestTrace);
     uint64_t hostStartTimeNs = getTraceStartTime(hostTrace);
 
-    uint64_t diff = guestStartTimeNs - hostStartTimeNs;
+    int64_t diff = getSignedDifference(guestStartTimeNs, hostStartTimeNs);
 
-    fprintf(stderr, "%s: time diff: %llu (guest %llu - host %llu) (host + diff = %llu)\n", __func__,
-        (unsigned long long)diff, (unsigned long long)guestStartTimeNs, (unsigned long long)hostStartTimeNs,
+    fprintf(stderr, "%s: time diff: %lld (guest %llu - host %llu) (host + diff = %llu)\n", __func__,
+        (long long)diff, (unsigned long long)guestStartTimeNs, (unsigned long long)hostStartTimeNs,
         (unsigned long long)(hostStartTimeNs + diff));
     return diff;
 }
@@ -899,7 +897,7 @@ VPERFETTO_EXPORT void combineTraces(const TraceCombineConfig* config) {
     hostFile.read(hostTrace.data(), end);
     hostFile.close();
 
-    uint64_t guestTimeDiff;
+    int64_t guestTimeDiff;
     if (config->useGuestAbsoluteTime) {
         guestTimeDiff = deriveGuestTimeDiffWithGuestAbsoluteTime(hostTrace, config->guestClockBootTimeNs);
     } else if (config->useGuestTimeDiff) {
@@ -908,8 +906,11 @@ VPERFETTO_EXPORT void combineTraces(const TraceCombineConfig* config) {
         guestTimeDiff = deriveGuestTimeDiff(guestTrace, hostTrace, config->guestTscOffset);
     }
 
-    std::vector<char> combinedTrace =
-        constructCombinedTrace(guestTrace, hostTrace, guestTimeDiff);
+    std::vector<char> combinedTrace;
+    if (config->mergeGuestIntoHost)
+        combinedTrace = constructCombinedTrace(hostTrace, guestTrace, -guestTimeDiff);
+    else
+        combinedTrace = constructCombinedTrace(guestTrace, hostTrace, guestTimeDiff);
 
     std::ofstream combinedFile(config->combinedFile, std::ios::out | std::ios::binary);
     combinedFile.write(combinedTrace.data(), combinedTrace.size());

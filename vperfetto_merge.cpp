@@ -39,58 +39,72 @@ static bool sValidFilename(const char* fn) {
 int main(int argc, char** argv) {
     vperfetto::TraceCombineConfig config;
 
-    if ((argc != 4) && (argc != 5) && (argc != 6)) {
+    if (argc < 4) {
         fprintf(stderr, "%s: error: invalid usage of vperfetto_merge. Usage: vperfetto_merge <guestTraceFile> <hostTraceFile> <combinedTraceFile>"
             " [<guestClockBootTimeNsWhenHostTracingStarted>]"
-            " [--guest-tsc-offset <guest tsc-offset, ie: host file /sys/kernel/debug/kvm/4678-27/vcpu0/tsc-offset>]\n", __func__);
+            " [--guest-tsc-offset <guest tsc-offset, ie: host file /sys/kernel/debug/kvm/4678-27/vcpu0/tsc-offset>]"
+            " [--merge-guest-into-host]\n", __func__);
         return 1;
-    } else {
-        const char* guestFile = argv[1];
-        const char* hostFile = argv[2];
-        const char* combinedFile = argv[3];
-        fprintf(stderr, "vperfetto_merge start. Configuration:\n", __func__);
-        fprintf(stderr, "guest trace file: %s\n", guestFile);
-        fprintf(stderr, "host trace file: %s\n", hostFile);
-        fprintf(stderr, "combined trace file: %s\n", combinedFile);
+    }
 
-        if (!sValidFilename(guestFile)) return 1;
-        if (!sValidFilename(hostFile)) return 1;
+    const char* guestFile = argv[1];
+    const char* hostFile = argv[2];
+    const char* combinedFile = argv[3];
+    fprintf(stderr, "vperfetto_merge start. Configuration:\n", __func__);
+    fprintf(stderr, "guest trace file: %s\n", guestFile);
+    fprintf(stderr, "host trace file: %s\n", hostFile);
+    fprintf(stderr, "combined trace file: %s\n", combinedFile);
 
-        config.guestFile = guestFile;
-        config.hostFile = hostFile;
-        config.combinedFile = combinedFile;
+    if (!sValidFilename(guestFile)) return 1;
+    if (!sValidFilename(hostFile)) return 1;
 
-        config.useGuestAbsoluteTime = false;
-        config.useGuestTimeDiff = false;
-        config.guestTscOffset = 0;
+    config.guestFile = guestFile;
+    config.hostFile = hostFile;
+    config.combinedFile = combinedFile;
 
-        if (argc == 5) {
+    config.useGuestAbsoluteTime = false;
+    config.useGuestTimeDiff = false;
+    config.guestTscOffset = 0;
+    config.mergeGuestIntoHost = false;
+
+    for (int i = 4; i < argc; ++i) {
+        auto arg = std::string(argv[i]);
+        if (arg == "--guest-tsc-offset") {
+            if (++i >= argc) {
+                fprintf(stderr, "ERROR: missing value after --guest-tsc-offset\n");
+                return 1;
+            }
+
+            // User specified guest boottime
+            int64_t guestTscOffset;
+            std::istringstream ss(argv[i]);
+            if (!(ss >> guestTscOffset)) {
+                fprintf(stderr, "ERROR: Failed to parse guest-tsc-offset. Provided: [%s]\n", argv[i]);
+                return 1;
+            } else {
+                fprintf(stderr, "using specified guest-tsc-offset: %llu\n", (unsigned long long)guestTscOffset);
+                config.guestTscOffset = guestTscOffset;
+            }
+        } else if (arg == "--merge-guest-into-host") {
+            config.mergeGuestIntoHost = true;
+        } else {
             // User specified guest boottime
             uint64_t guestClockBootTimeNs;
-            std::istringstream ss(argv[4]);
+            std::istringstream ss(arg);
             if (!(ss >> guestClockBootTimeNs)) {
-                fprintf(stderr, "ERROR: Failed to parse guest clock boot time ns. Provided: [%s]\n", argv[4]);
+                fprintf(stderr, "ERROR: Failed to parse guest clock boot time ns. Provided: [%s]\n", arg.c_str());
                 return 1;
             } else {
                 fprintf(stderr, "using specified guest time diff: %llu\n", (unsigned long long)guestClockBootTimeNs);
                 config.guestClockBootTimeNs = guestClockBootTimeNs;
                 config.useGuestAbsoluteTime = true;
             }
-        } else if (argc == 6 && std::string(argv[4]) == "--guest-tsc-offset") {
-            // User specified guest boottime
-            int64_t guestTscOffset;
-            std::istringstream ss(argv[5]);
-            if (!(ss >> guestTscOffset)) {
-                fprintf(stderr, "ERROR: Failed to parse guest-tsc-offset. Provided: [%s]\n", argv[5]);
-                return 1;
-            } else {
-                fprintf(stderr, "using specified guest-tsc-offset: %llu\n", (unsigned long long)guestTscOffset);
-                config.guestTscOffset = guestTscOffset;
-            }
-        } else { // TODO: an arg for guest time diff
-            // Derived guest boottime
-            fprintf(stderr, "Will derive guest clock boot time and time diff.\n");
         }
+    }
+
+    if (!config.useGuestAbsoluteTime && !config.useGuestTimeDiff) {
+        // Derived guest boottime
+        fprintf(stderr, "Will derive guest clock boot time and time diff.\n");
     }
 
     vperfetto::combineTraces(&config);
