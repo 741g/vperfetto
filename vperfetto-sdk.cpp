@@ -47,6 +47,13 @@ static VirtualDeviceTraceConfig sTraceConfig = {
     .perThreadStorageMb = 1,
 };
 
+struct TraceCpuTimeSync {
+    uint64_t cpuTime;
+    double cpuCyclesPerNano;
+    uint64_t clockTime;
+    uint32_t clockId;
+};
+
 struct TraceProgress {
     std::vector<char> hostTrace;
     std::vector<char> guestTrace;
@@ -512,7 +519,7 @@ static std::vector<char> constructCombinedTrace(
     }
 
     fprintf(stderr, "%s: postprocessing trace with guest time diff of %llu, and offseting by guest max seqid %u, max pid %u\n", __func__,
-            (unsigned long long)sTraceConfig.guestTimeDiff,
+            (unsigned long long)guestTimeDiff,
             maxGuestSequenceId,
             maxGuestPid);
 
@@ -756,6 +763,57 @@ uint64_t getTraceStartTime(const std::vector<char>& trace) {
     return 0;
 }
 
+bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCpuTime) {
+    ::perfetto::protos::Trace pbtrace;
+    std::string traceStr(trace.begin(), trace.end());
+    if (!pbtrace.ParseFromString(traceStr)) {
+        fprintf(stderr, "%s: error: could not parse host trace. return 0\n", __func__);
+        return false;
+    }
+
+    TraceCpuTimeSync first = {0};
+    TraceCpuTimeSync last = {0};
+    for (int i = 0; i < pbtrace.packet_size(); ++i) {
+        auto* packet = pbtrace.mutable_packet(i);
+        if (packet->has_clock_snapshot() && packet->clock_snapshot().clocks_size() == 2) {
+            fprintf(stderr, "%s: found cpu clock_snapshot\n", __func__);
+            auto snapshot = packet->clock_snapshot();
+            int cpuClock, regClock;
+            if (snapshot.clocks(0).clock_id() == 64) {
+                cpuClock = 0;
+                regClock = 1;
+            } else {
+                cpuClock = 1;
+                regClock = 0;
+            }
+            if (snapshot.clocks(cpuClock).clock_id() != 64) {
+                fprintf(stderr, "%s: error: cpu clock_id not 64 (found %u and %u)\n", __func__,
+                        snapshot.clocks(cpuClock).clock_id(), snapshot.clocks(regClock).clock_id());
+                return false;
+            }
+            last.clockId = snapshot.clocks(regClock).clock_id();
+            last.clockTime = snapshot.clocks(regClock).timestamp();
+            last.cpuTime = snapshot.clocks(cpuClock).timestamp();
+            if (first.cpuTime == 0) {
+                first = last;
+            }
+        }
+    }
+
+    if (first.cpuTime != 0 && last.cpuTime != 0 && last.cpuTime > first.cpuTime) {
+        fprintf(stderr, "%s: found cpu time sync\n", __func__);
+        double elapsedCycles = (double)(last.cpuTime - first.cpuTime);
+        double elapsedNanos = (double)(last.clockTime - first.clockTime);
+        double cyclesPerNano = elapsedCycles / elapsedNanos;
+        last.cpuCyclesPerNano = cyclesPerNano;
+        *retCpuTime = last;
+        return true;
+    }
+
+    fprintf(stderr, "%s: did not find 2 or more CPU time snapshots\n", __func__);
+    return false;
+}
+
 static uint64_t deriveGuestTimeDiffWithGuestAbsoluteTime(
     const std::vector<char>& hostTrace, uint64_t guestBootTimeNs) {
 
@@ -767,22 +825,60 @@ static uint64_t deriveGuestTimeDiffWithGuestAbsoluteTime(
     uint64_t diff = guestBootTimeNs - hostStartTimeNs;
 
     fprintf(stderr, "%s: time diff: %llu\n", __func__, (unsigned long long)diff);
-    return 0;
+    return diff;
 }
 
 static uint64_t deriveGuestTimeDiff(
     const std::vector<char>& guestTrace,
-    const std::vector<char>& hostTrace) {
+    const std::vector<char>& hostTrace,
+    int64_t tscOffset) {
 
     fprintf(stderr, "%s: Deriving guest time diff from guest and host traces\n", __func__);
+
+    // First check for CPU time sync data in both traces.
+    TraceCpuTimeSync hostSync, guestSync;
+    bool hasHostSync = getTraceCpuTimeSync(hostTrace, &hostSync);
+    bool hasGuestSync = getTraceCpuTimeSync(guestTrace, &guestSync);
+    bool sameClock = hasHostSync && hasGuestSync && hostSync.clockId == guestSync.clockId;
+    if (hasHostSync && hasGuestSync && sameClock) {
+        // Transform guest cpuTime to host:
+        guestSync.cpuTime -= tscOffset;
+        fprintf(stderr, "%s: CPU cycles/nanos: host %f, guest %f\n", __func__, hostSync.cpuCyclesPerNano,
+                guestSync.cpuCyclesPerNano);
+        // Guest and host frequency measurement should match.
+        double diffGuestHostFreq = abs(hostSync.cpuCyclesPerNano / guestSync.cpuCyclesPerNano - 1.0);
+        if (diffGuestHostFreq > 0.0001)
+            fprintf(stderr, "%s: Warning: guest and host CPU timer frequencies off by %.4f %%\n",
+                __func__, 100.0 * diffGuestHostFreq);
+        double cyclesPerNano = hostSync.cpuCyclesPerNano;
+        int64_t offsetNs = 0;
+        if (hostSync.cpuTime > guestSync.cpuTime) {
+            double cyclesDelta = (double)(hostSync.cpuTime - guestSync.cpuTime);
+            offsetNs = (int64_t)(cyclesDelta / cyclesPerNano);
+        } else {
+            double cyclesDelta = (double)(guestSync.cpuTime - hostSync.cpuTime);
+            offsetNs = -(int64_t)(cyclesDelta / cyclesPerNano);
+        }
+        double offsetSec = (double)offsetNs / 1000000000.0;
+        fprintf(stderr, "%s: CPU sync begin trace offset %f seconds\n", __func__, offsetSec);
+        if (offsetSec > 10.0)
+            fprintf(stderr, "%s: WARNING: CPU sync begin trace offset is too big\n", __func__);
+        return guestSync.clockTime + offsetNs - hostSync.clockTime;
+
+    } else if (hasHostSync && hasGuestSync) {
+        fprintf(stderr, "%s: CPU time sync failed because mismatched clocks (host %u, guest %u)\n", __func__,
+            hostSync.clockId, guestSync.clockId);
+    }
 
     uint64_t guestStartTimeNs = getTraceStartTime(guestTrace);
     uint64_t hostStartTimeNs = getTraceStartTime(hostTrace);
 
     uint64_t diff = guestStartTimeNs - hostStartTimeNs;
 
-    fprintf(stderr, "%s: time diff: %llu\n", __func__, (unsigned long long)diff);
-    return 0;
+    fprintf(stderr, "%s: time diff: %llu (guest %llu - host %llu) (host + diff = %llu)\n", __func__,
+        (unsigned long long)diff, (unsigned long long)guestStartTimeNs, (unsigned long long)hostStartTimeNs,
+        (unsigned long long)(hostStartTimeNs + diff));
+    return diff;
 }
 
 VPERFETTO_EXPORT void combineTraces(const TraceCombineConfig* config) {
@@ -809,7 +905,7 @@ VPERFETTO_EXPORT void combineTraces(const TraceCombineConfig* config) {
     } else if (config->useGuestTimeDiff) {
         guestTimeDiff = config->guestClockTimeDiffNs;
     } else {
-        guestTimeDiff = deriveGuestTimeDiff(guestTrace, hostTrace);
+        guestTimeDiff = deriveGuestTimeDiff(guestTrace, hostTrace, config->guestTscOffset);
     }
 
     std::vector<char> combinedTrace =

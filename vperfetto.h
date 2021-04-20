@@ -108,6 +108,9 @@ struct TraceCombineConfig {
     // Overriden by useSpecifiedGuestAbsoluteTime.
     bool useGuestTimeDiff = false;
     uint64_t guestClockTimeDiffNs;
+
+    // Use a tsc offset when deriving time sync between host and guest using rdtsc.
+    int64_t guestTscOffset = 0;
 };
 
 // Reads config.guestFile
