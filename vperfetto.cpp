@@ -36,6 +36,8 @@
 #include <unordered_set>
 #include <sstream>
 
+#include "vperfetto-util.h"
+
 namespace vperfetto {
 
 static FILE* sDefaultFileHandle = nullptr;
@@ -652,7 +654,7 @@ VPERFETTO_EXPORT void enableTracing() {
     fprintf(stderr, "%s: host filename: %s (possibly set via $VPERFETTO_HOST_FILE)\n", __func__, sTraceConfig.hostFilename);
     fprintf(stderr, "%s: guest filename: %s (possibly set via $VPERFETTO_GUEST_FILE)\n", __func__, sTraceConfig.guestFilename);
     fprintf(stderr, "%s: combined filename: %s (possibly set via $VPERFETTO_COMBINED_FILE)\n", __func__, sTraceConfig.combinedFilename);
-    fprintf(stderr, "%s: guest time diff to add to host time: %llu\n", __func__, (unsigned long long)sTraceConfig.guestTimeDiff);
+    fprintf(stderr, "%s: guest time diff to add to host time: %lld\n", __func__, (long long)sTraceConfig.guestTimeDiff);
 
     sTraceConfig.packetsWritten = 0;
     sTraceConfig.sequenceIdWritten = 0;
@@ -706,7 +708,7 @@ VPERFETTO_EXPORT void setGuestTime(uint64_t t) {
         }
         config.guestStartTime = t;
         config.hostStartTime = bootTimeNs();
-        config.guestTimeDiff = config.guestStartTime - config.hostStartTime;
+        config.guestTimeDiff = getSignedDifference(config.guestStartTime, config.hostStartTime);
     });
 }
 

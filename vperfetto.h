@@ -37,11 +37,10 @@ struct VirtualDeviceTraceConfig {
     const char* combinedFilename;
     uint64_t hostStartTime;
     uint64_t guestStartTime;
-    uint64_t guestTimeDiff;
+    int64_t guestTimeDiff;
     uint32_t perThreadStorageMb;
     bool saving;
 };
-
 
 // Workflow:
 //
@@ -107,7 +106,7 @@ struct TraceCombineConfig {
     // Use a time diff instead of absolute time to line up.
     // Overriden by useSpecifiedGuestAbsoluteTime.
     bool useGuestTimeDiff = false;
-    uint64_t guestClockTimeDiffNs;
+    int64_t guestClockTimeDiffNs;
 
     // Use a tsc offset when deriving time sync between host and guest using rdtsc.
     int64_t guestTscOffset = 0;
