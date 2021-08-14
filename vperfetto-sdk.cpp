@@ -811,7 +811,7 @@ static bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync
                     found.clockId = boottime_clockid;
                     found.clockTime = data.uint_value();
                 } else if (data.name() == "clock_sync_monotonic" &&
-                    (needed_clock == 0 || needed_clock == monotonic_clockid)) {
+                    needed_clock == monotonic_clockid) {
                     found.clockId = monotonic_clockid;
                     found.clockTime = data.uint_value();
                 } else if (data.name() == "clock_sync_cputime") {
