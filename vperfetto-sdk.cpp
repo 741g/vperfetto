@@ -49,6 +49,8 @@ static VirtualDeviceTraceConfig sTraceConfig = {
 };
 
 struct TraceCpuTimeSync {
+    bool hasData() const { return cpuTime != 0 && clockTime != 0 && clockId != 0; }
+
     uint64_t cpuTime;
     double cpuCyclesPerNano;
     uint64_t clockTime;
@@ -765,7 +767,8 @@ uint64_t getTraceStartTime(const std::vector<char>& trace) {
     return 0;
 }
 
-bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCpuTime) {
+static bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCpuTime,
+                                uint32_t needed_clock) {
     ::perfetto::protos::Trace pbtrace;
     std::string traceStr(trace.begin(), trace.end());
     if (!pbtrace.ParseFromString(traceStr)) {
@@ -776,6 +779,7 @@ bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCp
     TraceCpuTimeSync first = {0};
     TraceCpuTimeSync last = {0};
     for (int i = 0; i < pbtrace.packet_size(); ++i) {
+        TraceCpuTimeSync found = {0};
         auto* packet = pbtrace.mutable_packet(i);
         if (packet->has_clock_snapshot() && packet->clock_snapshot().clocks_size() == 2) {
             fprintf(stderr, "%s: found cpu clock_snapshot\n", __func__);
@@ -789,25 +793,45 @@ bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCp
                 regClock = 0;
             }
             if (snapshot.clocks(cpuClock).clock_id() != 64) {
-                fprintf(stderr, "%s: error: cpu clock_id not 64 (found %u and %u)\n", __func__,
+                fprintf(stderr, "%s: warning: skipping cpu clock_id not 64 (found %u and %u)\n", __func__,
                         snapshot.clocks(cpuClock).clock_id(), snapshot.clocks(regClock).clock_id());
-                return false;
+                continue;
             }
-            last.clockId = snapshot.clocks(regClock).clock_id();
-            last.clockTime = snapshot.clocks(regClock).timestamp();
-            last.cpuTime = snapshot.clocks(cpuClock).timestamp();
-            if (first.cpuTime == 0) {
+            found.clockId = snapshot.clocks(regClock).clock_id();
+            found.clockTime = snapshot.clocks(regClock).timestamp();
+            found.cpuTime = snapshot.clocks(cpuClock).timestamp();
+        }
+        uint32_t boottime_clockid = static_cast<uint32_t>(::perfetto::protos::pbzero::BuiltinClock::BUILTIN_CLOCK_BOOTTIME);
+        uint32_t monotonic_clockid = static_cast<uint32_t>(::perfetto::protos::pbzero::BuiltinClock::BUILTIN_CLOCK_MONOTONIC);
+        if (packet->has_track_event() && packet->track_event().debug_annotations_size() > 0) {
+            for (int d = 0; d < packet->track_event().debug_annotations_size(); ++d) {
+                const auto& data = packet->track_event().debug_annotations(d);
+                if (data.name() == "clock_sync_boottime" &&
+                    (needed_clock == 0 || needed_clock == boottime_clockid)) {
+                    found.clockId = boottime_clockid;
+                    found.clockTime = data.uint_value();
+                } else if (data.name() == "clock_sync_monotonic" &&
+                    needed_clock == monotonic_clockid) {
+                    found.clockId = monotonic_clockid;
+                    found.clockTime = data.uint_value();
+                } else if (data.name() == "clock_sync_cputime") {
+                    found.cpuTime = data.uint_value();
+                }
+            }
+        }
+        if (found.hasData()) {
+            last = found;
+            if (!first.hasData()) {
                 first = last;
             }
         }
     }
 
     if (first.cpuTime != 0 && last.cpuTime != 0 && last.cpuTime > first.cpuTime) {
-        fprintf(stderr, "%s: found cpu time sync\n", __func__);
+        fprintf(stderr, "%s: found cpu time sync spanning %.2f seconds\n", __func__,
+            (double)(last.clockTime - first.clockTime) / 1000000000.0);
         double elapsedCycles = (double)(last.cpuTime - first.cpuTime);
-        double elapsedNanos = (double)(last.clockTime - first.clockTime);
-        double cyclesPerNano = elapsedCycles / elapsedNanos;
-        last.cpuCyclesPerNano = cyclesPerNano;
+        last.cpuCyclesPerNano = elapsedCycles / (double)(last.clockTime - first.clockTime);
         *retCpuTime = last;
         return true;
     }
@@ -839,8 +863,10 @@ static int64_t deriveGuestTimeDiff(
 
     // First check for CPU time sync data in both traces.
     TraceCpuTimeSync hostSync, guestSync;
-    bool hasHostSync = getTraceCpuTimeSync(hostTrace, &hostSync);
-    bool hasGuestSync = getTraceCpuTimeSync(guestTrace, &guestSync);
+    fprintf(stderr, "%s: Looking for HOST clock sync...\n", __func__);
+    bool hasHostSync = getTraceCpuTimeSync(hostTrace, &hostSync, 0);
+    fprintf(stderr, "%s: Looking for GUEST clock sync...\n", __func__);
+    bool hasGuestSync = getTraceCpuTimeSync(guestTrace, &guestSync, hostSync.clockId);
     bool sameClock = hasHostSync && hasGuestSync && hostSync.clockId == guestSync.clockId;
     if (hasHostSync && hasGuestSync && sameClock) {
         // Transform guest cpuTime to host:
