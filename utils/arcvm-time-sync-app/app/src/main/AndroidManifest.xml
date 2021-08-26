@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.google.perfettoguesttimesync">
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -9,20 +11,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.PerfettoGuestTimeSync">
-        <activity
-            android:name=".MainActivity"
+        <service
+            android:name=".TimeTrace"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <layout android:defaultHeight="10dp"
-                android:defaultWidth="180dp"
-                android:gravity="bottom|end"
-                android:minHeight="10dp"
-                android:minWidth="100dp" />
-        </activity>
+        </service>
     </application>
 
 </manifest>

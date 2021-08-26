@@ -101,7 +101,7 @@ void init_perfetto()
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_google_perfettoguesttimesync_MainActivity_perfettoInit(
+Java_com_google_perfettoguesttimesync_TimeTrace_perfettoInit(
         JNIEnv* env,
         jobject /* this */) {
     init_perfetto();
