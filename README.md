@@ -2,6 +2,10 @@
 
 vperfetto is a way to make it easier to process perfetto traces in the virtual machine use case. It consists of an online component where the user can set up guest host communication and send messages to the host and call into the vperfetto library to mark guest time and start/end of tracing, and an offline component to merge guest/host traces after the fact.
 
+# Dependencies
+
+You'll need `libprotoc`, `libprotobuf` and the `protoc` compiler available so that CMake's `FindProtobuf` succeeds. There is an `ExternalProject_Add` routine in protobuf.cmake but it needs to do its work at configure, not build time.
+
 # Build
 
     mkdir build
