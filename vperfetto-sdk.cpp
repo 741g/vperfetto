@@ -514,6 +514,10 @@ static std::vector<char> constructCombinedTrace(
 
     sCalcMaxIds(mainTrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
 
+    // Easier to see host CPUs vs guest CPUs with fixed offset.
+    // 1000 would be more ideal, but the Perfetto UI doesn't allow CPU IDs that high.
+    int32_t addonCpuOffset = 100;
+
     ::perfetto::protos::Trace addon_pbtrace;
     std::string traceStr(addonTrace.begin(), addonTrace.end());
 
@@ -562,8 +566,8 @@ static std::vector<char> constructCombinedTrace(
             if (tid == 0) return 0;
             return (int32_t)(tid + maxMainTid);
         },
-        [maxMainCpu](int32_t cpu) {
-            return cpu + maxMainCpu + 1;
+        [addonCpuOffset](int32_t cpu) {
+            return cpu + addonCpuOffset;
         });
 
     std::string traceAfter;
