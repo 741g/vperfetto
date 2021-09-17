@@ -231,6 +231,28 @@ static void iterateTraceTrackDescriptorUuids(
     }
 }
 
+// Replace PID in "X|PID..."
+std::string replace_pid(std::string buf,
+                        std::function<int32_t(int32_t)> forEachPid) {
+    // parse "X|PID..."
+    size_t p1 = buf.find_first_of("|");
+    if (p1 == std::string::npos)
+        return buf;
+    ++p1;
+    size_t p2 = buf.find_first_not_of("0123456789", p1);
+    std::string buf2 = buf;
+    if (p2 != std::string::npos)
+        buf2[p2] = '\0';
+    int32_t old_pid = atoi(buf2.c_str() + p1);
+    int32_t new_pid = forEachPid(old_pid);
+    // gen new string
+    buf2 = buf.substr(0, p1);
+    buf2 += std::to_string(new_pid);
+    if (p2 != std::string::npos)
+        buf2 += buf.substr(p2);
+    return buf2;
+}
+
 // A higher-order function to conveniently iterate over all sequence ids and pids.
 // TODO: What other Ids are important?
 // This also takes care of changing UUIDs if a process or thread descriptor gets its id modified.
@@ -284,6 +306,20 @@ static void iterateTraceIds(
                         forEachPid(ftev->pid()));
                 }
 
+                if (ftev->has_print()) {
+                    auto* print = ftev->mutable_print();
+                    if (print->has_buf()) {
+                        print->set_buf(replace_pid(print->buf(), forEachPid));
+                    }
+                }
+
+                if (ftev->has_task_rename()) {
+                    auto* tr = ftev->mutable_task_rename();
+                    if (tr->has_pid()) {
+                        tr->set_pid(forEachPid(tr->pid()));
+                    }
+                }
+
                 if (ftev->has_sched_switch()) {
                     auto* sw = ftev->mutable_sched_switch();
                     if (sw->has_prev_pid() && (sw->prev_pid() != 0)) {
@@ -299,6 +335,10 @@ static void iterateTraceIds(
                     if (wakeup->has_pid() && (wakeup->pid() != 0)) {
                         wakeup->set_pid(forEachPid(wakeup->pid()));
                     }
+                    if (wakeup->has_target_cpu()) {
+                        wakeup->set_target_cpu(
+                            forEachPid(wakeup->target_cpu()));
+                    }
                 }
 
                 if (ftev->has_sched_blocked_reason()) {
@@ -313,12 +353,20 @@ static void iterateTraceIds(
                     if (waking->has_pid() && (waking->pid() != 0)) {
                         waking->set_pid(forEachPid(waking->pid()));
                     }
+                    if (waking->has_target_cpu()) {
+                        waking->set_target_cpu(
+                            forEachPid(waking->target_cpu()));
+                    }
                 }
 
                 if (ftev->has_sched_wakeup_new()) {
                     auto* evt = ftev->mutable_sched_wakeup_new();
                     if (evt->has_pid() && (evt->pid() != 0)) {
                         evt->set_pid(forEachPid(evt->pid()));
+                    }
+                    if (evt->has_target_cpu()) {
+                        evt->set_target_cpu(
+                            forEachPid(evt->target_cpu()));
                     }
                 }
 
@@ -402,6 +450,9 @@ static void iterateTraceIds(
                 auto* p = pt->mutable_processes(j);
                 if (p->has_pid()) {
                     p->set_pid(forEachPid(p->pid()));
+                }
+                if (p->has_ppid()) {
+                    p->set_ppid(forEachPid(p->ppid()));
                 }
             }
 
