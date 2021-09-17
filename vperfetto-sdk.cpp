@@ -565,6 +565,13 @@ static std::vector<char> constructCombinedTrace(
 
     sCalcMaxIds(mainTrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
 
+    // Use the same offset in case pids and tids are mixed up.
+    uint32_t maxPidTid = std::max(maxMainPid, maxMainTid);
+    // Use an offset that is easy to read out the original addon pid for debugging.
+    uint64_t pidTidOffset = 1000000;
+    while(pidTidOffset < maxPidTid)
+        pidTidOffset *= 10;
+
     // Easier to see host CPUs vs guest CPUs with fixed offset.
     // 1000 would be more ideal, but the Perfetto UI doesn't allow CPU IDs that high.
     int32_t addonCpuOffset = 100;
@@ -577,10 +584,10 @@ static std::vector<char> constructCombinedTrace(
         return {};
     }
 
-    fprintf(stderr, "%s: postprocessing trace with main time diff of %lld, and offseting by main max seqid %u, max pid %u\n", __func__,
+    fprintf(stderr, "%s: postprocessing trace with main time diff of %lld, and offseting by main max seqid %u, pid offset %u\n", __func__,
             (long long)mainTimeDiff,
             maxMainSequenceId,
-            maxMainPid);
+            pidTidOffset);
 
     mutateTracePackets(addon_pbtrace,
         [](auto* packet) {
@@ -609,13 +616,13 @@ static std::vector<char> constructCombinedTrace(
         [maxMainSequenceId](uint32_t seqid) {
             return seqid + maxMainSequenceId;
         },
-        [maxMainPid](int32_t pid) {
+        [pidTidOffset](int32_t pid) {
             if (pid == 0) return 0;
-            return (int32_t)(pid + maxMainPid);
+            return (int32_t)(pid + pidTidOffset);
         },
-        [maxMainTid](int32_t tid) {
+        [pidTidOffset](int32_t tid) {
             if (tid == 0) return 0;
-            return (int32_t)(tid + maxMainTid);
+            return (int32_t)(tid + pidTidOffset);
         },
         [addonCpuOffset](int32_t cpu) {
             return cpu + addonCpuOffset;
