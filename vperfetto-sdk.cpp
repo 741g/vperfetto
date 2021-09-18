@@ -172,7 +172,8 @@ static void mutateTracePackets(::perfetto::protos::Trace& pbtrace,
 
 static void iterateTraceTimestamps(
     ::perfetto::protos::Trace& pbtrace,
-    std::function<uint64_t(uint64_t)> forEachTimestamp) {
+    std::function<uint64_t(uint64_t)> forEachTimestamp,
+    std::function<uint64_t(uint64_t)> forEachRealtimeTimestamp) {
 
     for (int i = 0; i < pbtrace.packet_size(); ++i) {
         auto* packet = pbtrace.mutable_packet(i);
@@ -186,6 +187,16 @@ static void iterateTraceTimestamps(
                 auto* ftev = ftevts->mutable_event(j);
                 if (ftev->has_timestamp()) {
                     ftev->set_timestamp(forEachTimestamp(ftev->timestamp()));
+                }
+            }
+        }
+
+        if (packet->has_android_log()) {
+            auto* pt = packet->mutable_android_log();
+            for (int j = 0; j < pt->events_size(); ++j) {
+                auto* ev = pt->mutable_events(j);
+                if (ev->has_timestamp()) {
+                    ev->set_timestamp(forEachRealtimeTimestamp(ev->timestamp()));
                 }
             }
         }
@@ -441,6 +452,9 @@ static void iterateTraceIds(
                     t->set_pid(
                         transformPidWithUuidRemapTracking(t->pid(), trd->uuid()));
                 }
+                if (t->has_tid()) {
+                    t->set_tid(forEachTid(t->tid()));
+                }
             }
         }
 
@@ -466,6 +480,19 @@ static void iterateTraceIds(
                 }
             }
         }
+
+        if (packet->has_android_log()) {
+            auto* al = packet->mutable_android_log();
+            for (int j = 0; j < al->events_size(); ++j) {
+                auto* ev = al->mutable_events(j);
+                if (ev->has_pid()) {
+                    ev->set_pid(forEachPid(ev->pid()));
+                }
+                if (ev->has_tid()) {
+                    ev->set_tid(forEachTid(ev->tid()));
+                }
+            }
+        }
     }
 
     if (needRemapUuids) {
@@ -482,7 +509,7 @@ static void iterateTraceIds(
 }
 
 static void sCalcMaxIds(
-    const std::vector<char>& trace,
+    ::perfetto::protos::Trace& pbtrace,
     uint32_t* maxTrustedUidOut,
     uint32_t* maxSequenceIdOut,
     uint32_t* maxPidOut,
@@ -500,14 +527,6 @@ static void sCalcMaxIds(
     *maxTrustedUidOut = maxTrustedUid;
     *maxTidOut = maxTid;
     *maxCpuOut = maxCpu;;
-
-    ::perfetto::protos::Trace pbtrace;
-    std::string traceStr(trace.begin(), trace.end());
-
-    if (!pbtrace.ParseFromString(traceStr)) {
-        fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
-        return;
-    }
 
     iterateTraceIds(pbtrace,
         [&maxTrustedUid](uint32_t uid) {
@@ -550,11 +569,39 @@ static void sCalcMaxIds(
     *maxCpuOut = maxCpu;;
 }
 
+static void getClockSnapshotTimes(const ::perfetto::protos::Trace& pbtrace, uint64_t* realtime, uint64_t* boottime) {
+    using ::perfetto::protos::pbzero::BuiltinClock;
+    for (int i = 0; i < pbtrace.packet_size(); ++i) {
+        const auto& packet = pbtrace.packet(i);
+        if (packet.has_clock_snapshot()) {
+            auto snapshot = packet.clock_snapshot();
+            for (int c = 0; c < snapshot.clocks_size(); ++c) {
+                if (snapshot.clocks(c).clock_id() == BuiltinClock::BUILTIN_CLOCK_BOOTTIME)
+                    *boottime = snapshot.clocks(c).timestamp();
+                if (snapshot.clocks(c).clock_id() == BuiltinClock::BUILTIN_CLOCK_REALTIME)
+                    *realtime = snapshot.clocks(c).timestamp();
+            }
+            if (*realtime != 0 && *boottime != 0) {
+                return;
+            }
+        }
+    }
+}
+
 // Transforms addonTrace timestamps into mainTrace space and merges with mainTrace.
 static std::vector<char> constructCombinedTrace(
     const std::vector<char>& mainTrace,
     const std::vector<char>& addonTrace,
     int64_t mainTimeDiff) {
+
+    ::perfetto::protos::Trace main_pbtrace;
+    {
+        std::string traceStr(mainTrace.begin(), mainTrace.end());
+        if (!main_pbtrace.ParseFromString(traceStr)) {
+            fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
+            return {};
+        }
+    }
 
     // Calculate the max seqid/pid/tid in the main
     uint32_t maxMainTrustedUid = 0;
@@ -563,7 +610,7 @@ static std::vector<char> constructCombinedTrace(
     uint32_t maxMainTid = 0;
     uint32_t maxMainCpu = 0;
 
-    sCalcMaxIds(mainTrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
+    sCalcMaxIds(main_pbtrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
 
     // Use the same offset in case pids and tids are mixed up.
     uint32_t maxPidTid = std::max(maxMainPid, maxMainTid);
@@ -577,12 +624,25 @@ static std::vector<char> constructCombinedTrace(
     int32_t addonCpuOffset = 100;
 
     ::perfetto::protos::Trace addon_pbtrace;
-    std::string traceStr(addonTrace.begin(), addonTrace.end());
-
-    if (!addon_pbtrace.ParseFromString(traceStr)) {
-        fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
-        return {};
+    {
+        std::string traceStr(addonTrace.begin(), addonTrace.end());
+        if (!addon_pbtrace.ParseFromString(traceStr)) {
+            fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
+            return {};
+        }
     }
+
+    uint64_t addonRealtimeToBoottime = 0;
+    uint64_t mainBoottimeToRealtime = 0;
+    uint64_t addonRealtimeToMainRealtime = 0;
+    uint64_t realtime = 0;
+    uint64_t boottime = 0;
+
+    getClockSnapshotTimes(main_pbtrace, &realtime, &boottime);
+    mainBoottimeToRealtime = realtime - boottime;
+    getClockSnapshotTimes(addon_pbtrace, &realtime, &boottime);
+    addonRealtimeToBoottime = boottime - realtime;
+    addonRealtimeToMainRealtime = addonRealtimeToBoottime + mainTimeDiff + mainBoottimeToRealtime;
 
     fprintf(stderr, "%s: postprocessing trace with main time diff of %lld, and offseting by main max seqid %u, pid offset %u\n", __func__,
             (long long)mainTimeDiff,
@@ -607,6 +667,9 @@ static std::vector<char> constructCombinedTrace(
     iterateTraceTimestamps(addon_pbtrace,
         [mainTimeDiff](uint64_t ts) {
             return ts + mainTimeDiff;
+        },
+        [addonRealtimeToMainRealtime](uint64_t ts) {
+            return ts + addonRealtimeToMainRealtime;
         });
 
     iterateTraceIds(addon_pbtrace,
