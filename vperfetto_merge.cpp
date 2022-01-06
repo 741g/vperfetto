@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "ERROR: Failed to parse guest-tsc-offset. Provided: [%s]\n", argv[i]);
                 return 1;
             } else {
-                fprintf(stderr, "using specified guest-tsc-offset: %llu\n", (unsigned long long)guestTscOffset);
+                fprintf(stderr, "using specified guest-tsc-offset: %lld\n", (long long)guestTscOffset);
                 config.guestTscOffset = guestTscOffset;
             }
         } else if (arg == "--merge-guest-into-host") {

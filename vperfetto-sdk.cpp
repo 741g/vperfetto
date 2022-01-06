@@ -172,7 +172,8 @@ static void mutateTracePackets(::perfetto::protos::Trace& pbtrace,
 
 static void iterateTraceTimestamps(
     ::perfetto::protos::Trace& pbtrace,
-    std::function<uint64_t(uint64_t)> forEachTimestamp) {
+    std::function<uint64_t(uint64_t)> forEachTimestamp,
+    std::function<uint64_t(uint64_t)> forEachRealtimeTimestamp) {
 
     for (int i = 0; i < pbtrace.packet_size(); ++i) {
         auto* packet = pbtrace.mutable_packet(i);
@@ -186,6 +187,16 @@ static void iterateTraceTimestamps(
                 auto* ftev = ftevts->mutable_event(j);
                 if (ftev->has_timestamp()) {
                     ftev->set_timestamp(forEachTimestamp(ftev->timestamp()));
+                }
+            }
+        }
+
+        if (packet->has_android_log()) {
+            auto* pt = packet->mutable_android_log();
+            for (int j = 0; j < pt->events_size(); ++j) {
+                auto* ev = pt->mutable_events(j);
+                if (ev->has_timestamp()) {
+                    ev->set_timestamp(forEachRealtimeTimestamp(ev->timestamp()));
                 }
             }
         }
@@ -229,6 +240,28 @@ static void iterateTraceTrackDescriptorUuids(
             }
         }
     }
+}
+
+// Replace PID in "X|PID..."
+std::string replace_pid(std::string buf,
+                        std::function<int32_t(int32_t)> forEachPid) {
+    // parse "X|PID..."
+    size_t p1 = buf.find_first_of("|");
+    if (p1 == std::string::npos)
+        return buf;
+    ++p1;
+    size_t p2 = buf.find_first_not_of("0123456789", p1);
+    std::string buf2 = buf;
+    if (p2 != std::string::npos)
+        buf2[p2] = '\0';
+    int32_t old_pid = atoi(buf2.c_str() + p1);
+    int32_t new_pid = forEachPid(old_pid);
+    // gen new string
+    buf2 = buf.substr(0, p1);
+    buf2 += std::to_string(new_pid);
+    if (p2 != std::string::npos)
+        buf2 += buf.substr(p2);
+    return buf2;
 }
 
 // A higher-order function to conveniently iterate over all sequence ids and pids.
@@ -284,6 +317,20 @@ static void iterateTraceIds(
                         forEachPid(ftev->pid()));
                 }
 
+                if (ftev->has_print()) {
+                    auto* print = ftev->mutable_print();
+                    if (print->has_buf()) {
+                        print->set_buf(replace_pid(print->buf(), forEachPid));
+                    }
+                }
+
+                if (ftev->has_task_rename()) {
+                    auto* tr = ftev->mutable_task_rename();
+                    if (tr->has_pid()) {
+                        tr->set_pid(forEachPid(tr->pid()));
+                    }
+                }
+
                 if (ftev->has_sched_switch()) {
                     auto* sw = ftev->mutable_sched_switch();
                     if (sw->has_prev_pid() && (sw->prev_pid() != 0)) {
@@ -299,6 +346,10 @@ static void iterateTraceIds(
                     if (wakeup->has_pid() && (wakeup->pid() != 0)) {
                         wakeup->set_pid(forEachPid(wakeup->pid()));
                     }
+                    if (wakeup->has_target_cpu()) {
+                        wakeup->set_target_cpu(
+                            forEachPid(wakeup->target_cpu()));
+                    }
                 }
 
                 if (ftev->has_sched_blocked_reason()) {
@@ -313,12 +364,20 @@ static void iterateTraceIds(
                     if (waking->has_pid() && (waking->pid() != 0)) {
                         waking->set_pid(forEachPid(waking->pid()));
                     }
+                    if (waking->has_target_cpu()) {
+                        waking->set_target_cpu(
+                            forEachPid(waking->target_cpu()));
+                    }
                 }
 
                 if (ftev->has_sched_wakeup_new()) {
                     auto* evt = ftev->mutable_sched_wakeup_new();
                     if (evt->has_pid() && (evt->pid() != 0)) {
                         evt->set_pid(forEachPid(evt->pid()));
+                    }
+                    if (evt->has_target_cpu()) {
+                        evt->set_target_cpu(
+                            forEachPid(evt->target_cpu()));
                     }
                 }
 
@@ -393,6 +452,9 @@ static void iterateTraceIds(
                     t->set_pid(
                         transformPidWithUuidRemapTracking(t->pid(), trd->uuid()));
                 }
+                if (t->has_tid()) {
+                    t->set_tid(forEachTid(t->tid()));
+                }
             }
         }
 
@@ -403,6 +465,9 @@ static void iterateTraceIds(
                 if (p->has_pid()) {
                     p->set_pid(forEachPid(p->pid()));
                 }
+                if (p->has_ppid()) {
+                    p->set_ppid(forEachPid(p->ppid()));
+                }
             }
 
             for (int j = 0; j < pt->threads_size(); ++j) {
@@ -412,6 +477,19 @@ static void iterateTraceIds(
                 }
                 if (t->has_tgid()) {
                     t->set_tgid(forEachPid(t->tgid()));
+                }
+            }
+        }
+
+        if (packet->has_android_log()) {
+            auto* al = packet->mutable_android_log();
+            for (int j = 0; j < al->events_size(); ++j) {
+                auto* ev = al->mutable_events(j);
+                if (ev->has_pid()) {
+                    ev->set_pid(forEachPid(ev->pid()));
+                }
+                if (ev->has_tid()) {
+                    ev->set_tid(forEachTid(ev->tid()));
                 }
             }
         }
@@ -431,7 +509,7 @@ static void iterateTraceIds(
 }
 
 static void sCalcMaxIds(
-    const std::vector<char>& trace,
+    ::perfetto::protos::Trace& pbtrace,
     uint32_t* maxTrustedUidOut,
     uint32_t* maxSequenceIdOut,
     uint32_t* maxPidOut,
@@ -449,14 +527,6 @@ static void sCalcMaxIds(
     *maxTrustedUidOut = maxTrustedUid;
     *maxTidOut = maxTid;
     *maxCpuOut = maxCpu;;
-
-    ::perfetto::protos::Trace pbtrace;
-    std::string traceStr(trace.begin(), trace.end());
-
-    if (!pbtrace.ParseFromString(traceStr)) {
-        fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
-        return;
-    }
 
     iterateTraceIds(pbtrace,
         [&maxTrustedUid](uint32_t uid) {
@@ -499,11 +569,39 @@ static void sCalcMaxIds(
     *maxCpuOut = maxCpu;;
 }
 
+static void getClockSnapshotTimes(const ::perfetto::protos::Trace& pbtrace, uint64_t* realtime, uint64_t* boottime) {
+    using ::perfetto::protos::pbzero::BuiltinClock;
+    for (int i = 0; i < pbtrace.packet_size(); ++i) {
+        const auto& packet = pbtrace.packet(i);
+        if (packet.has_clock_snapshot()) {
+            auto snapshot = packet.clock_snapshot();
+            for (int c = 0; c < snapshot.clocks_size(); ++c) {
+                if (snapshot.clocks(c).clock_id() == BuiltinClock::BUILTIN_CLOCK_BOOTTIME)
+                    *boottime = snapshot.clocks(c).timestamp();
+                if (snapshot.clocks(c).clock_id() == BuiltinClock::BUILTIN_CLOCK_REALTIME)
+                    *realtime = snapshot.clocks(c).timestamp();
+            }
+            if (*realtime != 0 && *boottime != 0) {
+                return;
+            }
+        }
+    }
+}
+
 // Transforms addonTrace timestamps into mainTrace space and merges with mainTrace.
 static std::vector<char> constructCombinedTrace(
     const std::vector<char>& mainTrace,
     const std::vector<char>& addonTrace,
     int64_t mainTimeDiff) {
+
+    ::perfetto::protos::Trace main_pbtrace;
+    {
+        std::string traceStr(mainTrace.begin(), mainTrace.end());
+        if (!main_pbtrace.ParseFromString(traceStr)) {
+            fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
+            return {};
+        }
+    }
 
     // Calculate the max seqid/pid/tid in the main
     uint32_t maxMainTrustedUid = 0;
@@ -512,24 +610,44 @@ static std::vector<char> constructCombinedTrace(
     uint32_t maxMainTid = 0;
     uint32_t maxMainCpu = 0;
 
-    sCalcMaxIds(mainTrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
+    sCalcMaxIds(main_pbtrace, &maxMainTrustedUid, &maxMainSequenceId, &maxMainPid, &maxMainTid, &maxMainCpu);
+
+    // Use the same offset in case pids and tids are mixed up.
+    uint32_t maxPidTid = std::max(maxMainPid, maxMainTid);
+    // Use an offset that is easy to read out the original addon pid for debugging.
+    uint64_t pidTidOffset = 1000000;
+    while(pidTidOffset < maxPidTid)
+        pidTidOffset *= 10;
 
     // Easier to see host CPUs vs guest CPUs with fixed offset.
     // 1000 would be more ideal, but the Perfetto UI doesn't allow CPU IDs that high.
     int32_t addonCpuOffset = 100;
 
     ::perfetto::protos::Trace addon_pbtrace;
-    std::string traceStr(addonTrace.begin(), addonTrace.end());
-
-    if (!addon_pbtrace.ParseFromString(traceStr)) {
-        fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
-        return {};
+    {
+        std::string traceStr(addonTrace.begin(), addonTrace.end());
+        if (!addon_pbtrace.ParseFromString(traceStr)) {
+            fprintf(stderr, "%s: Failed to parse protobuf as a string\n", __func__);
+            return {};
+        }
     }
 
-    fprintf(stderr, "%s: postprocessing trace with main time diff of %lld, and offseting by main max seqid %u, max pid %u\n", __func__,
+    uint64_t addonRealtimeToBoottime = 0;
+    uint64_t mainBoottimeToRealtime = 0;
+    uint64_t addonRealtimeToMainRealtime = 0;
+    uint64_t realtime = 0;
+    uint64_t boottime = 0;
+
+    getClockSnapshotTimes(main_pbtrace, &realtime, &boottime);
+    mainBoottimeToRealtime = realtime - boottime;
+    getClockSnapshotTimes(addon_pbtrace, &realtime, &boottime);
+    addonRealtimeToBoottime = boottime - realtime;
+    addonRealtimeToMainRealtime = addonRealtimeToBoottime + mainTimeDiff + mainBoottimeToRealtime;
+
+    fprintf(stderr, "%s: postprocessing trace with main time diff of %lld, and offseting by main max seqid %u, pid offset %u\n", __func__,
             (long long)mainTimeDiff,
             maxMainSequenceId,
-            maxMainPid);
+            pidTidOffset);
 
     mutateTracePackets(addon_pbtrace,
         [](auto* packet) {
@@ -549,6 +667,9 @@ static std::vector<char> constructCombinedTrace(
     iterateTraceTimestamps(addon_pbtrace,
         [mainTimeDiff](uint64_t ts) {
             return ts + mainTimeDiff;
+        },
+        [addonRealtimeToMainRealtime](uint64_t ts) {
+            return ts + addonRealtimeToMainRealtime;
         });
 
     iterateTraceIds(addon_pbtrace,
@@ -558,13 +679,13 @@ static std::vector<char> constructCombinedTrace(
         [maxMainSequenceId](uint32_t seqid) {
             return seqid + maxMainSequenceId;
         },
-        [maxMainPid](int32_t pid) {
+        [pidTidOffset](int32_t pid) {
             if (pid == 0) return 0;
-            return (int32_t)(pid + maxMainPid);
+            return (int32_t)(pid + pidTidOffset);
         },
-        [maxMainTid](int32_t tid) {
+        [pidTidOffset](int32_t tid) {
             if (tid == 0) return 0;
-            return (int32_t)(tid + maxMainTid);
+            return (int32_t)(tid + pidTidOffset);
         },
         [addonCpuOffset](int32_t cpu) {
             return cpu + addonCpuOffset;

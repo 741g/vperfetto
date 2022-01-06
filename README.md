@@ -8,6 +8,9 @@ You'll need `libprotoc`, `libprotobuf` and the `protoc` compiler available so th
 
 # Build
 
+    # protobuf is required. On debian buster, do this to install it.
+    # sudo apt-get install libprotoc-dev protobuf-compiler
+
     mkdir build
     cd build
     cmake . ../
