@@ -40,6 +40,7 @@ struct VirtualDeviceTraceConfig {
     int64_t guestTimeDiff;
     uint32_t perThreadStorageMb;
     bool saving;
+    bool addTraces;
 };
 
 // Workflow:
@@ -113,6 +114,9 @@ struct TraceCombineConfig {
 
     // Merge guest events into host space if true; otherwise merge host events into guest.
     bool mergeGuestIntoHost = false;
+
+    // Simply display the two separate traces in one trace. Do not modify them in any way.
+    bool addTraces;
 };
 
 // Reads config.guestFile

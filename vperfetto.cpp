@@ -56,6 +56,7 @@ static VirtualDeviceTraceConfig sTraceConfig = {
     .guestStartTime = 0,
     .guestTimeDiff = 0,
     .perThreadStorageMb = 1,
+    .addTraces = false;
 };
 
 #define TRACE_STACK_DEPTH_MAX 16

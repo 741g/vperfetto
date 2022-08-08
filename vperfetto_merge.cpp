@@ -66,6 +66,7 @@ int main(int argc, char** argv) {
     config.useGuestTimeDiff = false;
     config.guestTscOffset = 0;
     config.mergeGuestIntoHost = false;
+    config.addTraces = false;
 
     for (int i = 4; i < argc; ++i) {
         auto arg = std::string(argv[i]);
@@ -87,6 +88,9 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--merge-guest-into-host") {
             config.mergeGuestIntoHost = true;
+        }
+        } else if (arg == "--add-traces") {
+            config.addTraces = true;
         } else {
             // User specified guest boottime
             uint64_t guestClockBootTimeNs;
