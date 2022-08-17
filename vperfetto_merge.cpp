@@ -88,7 +88,6 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--merge-guest-into-host") {
             config.mergeGuestIntoHost = true;
-        }
         } else if (arg == "--add-traces") {
             config.addTraces = true;
         } else {
