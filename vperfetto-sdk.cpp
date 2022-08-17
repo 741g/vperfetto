@@ -945,9 +945,11 @@ static bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync
             }
         }
         if (found.hasData()) {
-            last = found;
-            if (!first.hasData()) {
-                first = last;
+            if (!last.hasData() || found.cpuTime > last.cpuTime) {
+                last = found;
+            }
+            if (!first.hasData() || found.cpuTime < first.cpuTime || first.cpuTime == 0) {
+                first = found;
             }
         }
     }
