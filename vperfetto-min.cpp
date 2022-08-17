@@ -48,6 +48,7 @@ static VirtualDeviceTraceConfig sTraceConfig = {
     .guestStartTime = 0,
     .guestTimeDiff = 0,
     .perThreadStorageMb = 1,
+    .addTraces = false;
 };
 
 struct TraceProgress {
