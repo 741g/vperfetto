@@ -893,6 +893,18 @@ uint64_t getTraceStartTime(const std::vector<char>& trace) {
     return 0;
 }
 
+static int getCpuClockIndex(const ::perfetto::protos::ClockSnapshot& snapshot)
+{
+    for (int i = 0; i < snapshot.clocks_size(); i++) {
+        const auto& clock = snapshot.clocks(i);
+
+        if (clock.clock_id() == 64 && !clock.has_is_incremental() && !clock.has_unit_multiplier_ns())
+            return i;
+    }
+
+    return -1;
+}
+
 static bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync* retCpuTime,
                                 uint32_t needed_clock) {
     ::perfetto::protos::Trace pbtrace;
@@ -911,18 +923,12 @@ static bool getTraceCpuTimeSync(const std::vector<char>& trace, TraceCpuTimeSync
             fprintf(stderr, "%s: found cpu clock_snapshot\n", __func__);
             auto snapshot = packet->clock_snapshot();
             int cpuClock, regClock;
-            if (snapshot.clocks(0).clock_id() == 64) {
-                cpuClock = 0;
-                regClock = 1;
-            } else {
-                cpuClock = 1;
-                regClock = 0;
-            }
-            if (snapshot.clocks(cpuClock).clock_id() != 64) {
-                fprintf(stderr, "%s: warning: skipping cpu clock_id not 64 (found %u and %u)\n", __func__,
-                        snapshot.clocks(cpuClock).clock_id(), snapshot.clocks(regClock).clock_id());
+
+            cpuClock = getCpuClockIndex(snapshot);
+            if (cpuClock < 0)
                 continue;
-            }
+
+            regClock = (cpuClock == 0) ? 1 : 0;
             found.clockId = snapshot.clocks(regClock).clock_id();
             found.clockTime = snapshot.clocks(regClock).timestamp();
             found.cpuTime = snapshot.clocks(cpuClock).timestamp();
