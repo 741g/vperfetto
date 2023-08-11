@@ -57,7 +57,7 @@ static void sOnTracingStateChange(bool enabled) {
 TEST(VperfettoMin, Basic) {
     static char trace1FileName[L_tmpnam];
 
-    if (!std::tmpnam(trace1FileName)) {
+    if (mkstemp(trace1FileName) < 0) { //return -1 if error, or fd if success
         FAIL() << "Could not generate trace1 file name";
         return;
     }
